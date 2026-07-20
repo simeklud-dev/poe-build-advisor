@@ -11,6 +11,7 @@ from typing import Any
 
 from app.pob.decode import encode_pob_code
 from app.pob.session import PobSession
+from app.trade.client import TRADE_CLIENT, TradeApiError
 
 TOOLS: list[dict[str, Any]] = [
     {
@@ -86,6 +87,62 @@ TOOLS: list[dict[str, Any]] = [
         "description": "Vygeneruje aktuální (upravený) build jako PoB export kód pro re-import do desktop Path of Building.",
         "input_schema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "list_trade_leagues",
+        "description": (
+            "Vrátí aktuální seznam PC lig (jméno ligy se mění každé ~3-4 měsíce -- "
+            "vždy zjisti aktuální ligu tímhle nástrojem, nikdy si jméno ligy nevymýšlej "
+            "ani nepoužívej jméno z tréninkových dat)."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "search_trade_stats",
+        "description": (
+            "Najde skutečné ID statu pro trade API podle textu modu (např. "
+            "'maximum life', 'fire resistance'). Zavolej PŘED search_trade_items -- "
+            "ID statů se nesmí hádat/vymýšlet, musí se najít tady."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"query": {"type": "string", "description": "Text hledaného modu, např. 'to maximum life'."}},
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "search_trade_items",
+        "description": (
+            "Vyhledá reálné nabídky na trade webu podle statových filtrů (ID statů "
+            "z search_trade_stats, ne hardkódovaná). Vrací max. pár nejlevnějších "
+            "nabídek s cenou a textem itemu -- neexistuje PoB váženy DPS/Life search, "
+            "jen prosté min/max filtry na jednotlivé staty."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "league": {"type": "string", "description": "Jméno ligy z list_trade_leagues."},
+                "stat_filters": {
+                    "type": "array",
+                    "description": "Seznam {id, min?, max?} -- id z search_trade_stats.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "min": {"type": "number"},
+                            "max": {"type": "number"},
+                        },
+                        "required": ["id"],
+                    },
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Volitelná kategorie itemu, např. 'armour.boots', 'weapon.bow'.",
+                },
+                "max_results": {"type": "integer", "description": "Max. počet nabídek k načtení (default 5, max 10)."},
+            },
+            "required": ["league", "stat_filters"],
+        },
+    },
 ]
 
 
@@ -104,6 +161,26 @@ def compute_delta(before: dict[str, Any], after: dict[str, Any]) -> dict[str, An
 
 
 def dispatch_tool(session: PobSession, name: str, tool_input: dict[str, Any]) -> Any:
+    # Trade tools don't touch the PoB build/bridge at all -- handled first so
+    # `session.bridge` is never dereferenced for them.
+    if name == "list_trade_leagues":
+        return {"leagues": [entry["id"] for entry in TRADE_CLIENT.fetch_leagues()]}
+    if name == "search_trade_stats":
+        return {"matches": TRADE_CLIENT.search_stats(tool_input["query"])}
+    if name == "search_trade_items":
+        for f in tool_input["stat_filters"]:
+            if not TRADE_CLIENT.search_stat_by_id(f["id"]):
+                raise ValueError(f"unknown trade stat id: {f['id']!r} -- call search_trade_stats first")
+        try:
+            return TRADE_CLIENT.search_items(
+                league=tool_input["league"],
+                stat_filters=tool_input["stat_filters"],
+                category=tool_input.get("category"),
+                max_results=min(tool_input.get("max_results", 5), 10),
+            )
+        except TradeApiError as exc:
+            raise ValueError(str(exc)) from exc
+
     bridge = session.bridge
     if name == "get_build_summary":
         return bridge.call("get_summary")

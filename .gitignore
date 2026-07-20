@@ -17,3 +17,6 @@ next-env.d.ts
 # OS
 .DS_Store
 Thumbs.db
+
+# graphify (/graphify skill output -- generated cache, not project source)
+graphify-out/

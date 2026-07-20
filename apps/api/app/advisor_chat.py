@@ -28,7 +28,13 @@ SYSTEM_PROMPT = (
     "try_node_toggle), které nevyšly líp, vrať zpět (zavolej stejný nástroj "
     "znovu s původní hodnotou -- item text zjištěný přes list_equipped_items "
     "PŘED první změnou, node_id znovu pro tree) dřív, než odpovíš, aby "
-    "uživateli nezůstal build v rozjetém stavu jen z tvého zkoušení."
+    "uživateli nezůstal build v rozjetém stavu jen z tvého zkoušení. "
+    "Pokud uživatel chce reálné vybavení k nákupu, nejdřív zjisti aktuální "
+    "ligu (list_trade_leagues -- jméno ligy se mění každé ~3-4 měsíce, nikdy "
+    "nepoužívej jméno z tréninkových dat), pak najdi správné ID statu "
+    "(search_trade_stats -- nikdy si ID nevymýšlej) a teprve pak hledej "
+    "(search_trade_items). Ceny a nabídky jsou živá data z trade webu, ne "
+    "z PoB enginu -- řekni to jasně, když je zmiňuješ."
 )
 
 MAX_TOOL_ITERATIONS = 8
