@@ -7,12 +7,11 @@ enginem (headless), ne odhadem LLM. Druhý, samostatný projekt vedle
 `AI_BUILD_ADVISOR_PLAN.md` v projektu "POE Build helper" pro plný kontext,
 architekturu a fázový plán.
 
-**Stav: fáze 2 hotová (co-by-kdyby simulace + chat)** -- import buildu,
-reálné staty, `try_item_change`/`try_node_toggle` s tool-use smyčkou přes
-Claude (`/advisor/session/{id}/chat`), export upraveného buildu. Živě
-ověřeno v Dockeru + prohlížeči; samotná Claude smyčka zatím jen do bodu
-"bez API klíče vrátí čistou chybu" (nemám k dispozici `ANTHROPIC_API_KEY` na
-testování). Fáze 3 (trade integrace) zatím není.
+**Stav: fáze 2 hotová a plně ověřená end-to-end** (co-by-kdyby simulace +
+chat s reálným `ANTHROPIC_API_KEY`) -- import buildu, reálné staty,
+`try_item_change`/`try_node_toggle` s tool-use smyčkou přes Claude
+(`/advisor/session/{id}/chat`), export upraveného buildu. Fáze 3 (trade
+integrace) zatím není.
 
 ## Struktura repozitáře
 

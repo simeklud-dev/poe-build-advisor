@@ -24,10 +24,12 @@ si ho přečti před prací na nové části projektu**.
 
 ## Stav (2026-07-20)
 
-Fáze 1 + fáze 2 hotové a živě ověřené (Docker + prohlížeč) -- viz
-`AI_BUILD_ADVISOR_PLAN.md` sekce "Poznámky ke stavu" pro detaily a co přesně
-bylo/nebylo testováno. Tool-use smyčka s Claude (`advisor_chat.py`) čeká na
-`ANTHROPIC_API_KEY` pro první živé ověření. Fáze 3 (trade) neimplementována.
+Fáze 1 + fáze 2 hotové a živě ověřené end-to-end (Docker + prohlížeč +
+reálný `ANTHROPIC_API_KEY` chat) -- viz `AI_BUILD_ADVISOR_PLAN.md` sekce
+"Poznámky ke stavu" pro detaily. Fáze 3 (trade) neimplementována.
+
+Projekt teď žije v `C:\Claude\Lab\01_PROJEKTY\poe-build-advisor` (migrace z
+OneDrive dokončená, OneDrive kopie zůstává jako needržovaná záloha).
 
 ## Klíčová pravidla
 
