@@ -14,6 +14,15 @@ tool-use chat (`/advisor/session/{id}/chat`), export upraveného buildu, a
 `search_trade_items`) -- vše ověřeno reálným během proti skutečnému PoB
 enginu i skutečnému PoE trade API s `ANTHROPIC_API_KEY`.
 
+**Nasazeno na Railway** (2026-07-20): backend
+`poe-build-advisor-production.up.railway.app`, frontend
+`unique-presence-production-b5e6.up.railway.app` (Railway auto-pojmenoval
+frontend službu podle GitHub repa `unique-presence` -- přejmenování je jen
+kosmetická úprava, zatím neprovedena). `/advisor/analyze` živě ověřeno přes
+frontend UI proti reálnému buildu. `ANTHROPIC_API_KEY` na backendu zatím
+NENÍ nastavený -- bez něj fáze 1 (jednorázový komentář) i fáze 2/3 (chat)
+vrátí chybu; je potřeba ho doplnit ručně ve Variables backend služby.
+
 ## Struktura repozitáře
 
 ```

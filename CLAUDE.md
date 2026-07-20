@@ -31,6 +31,18 @@ Fáze 1-3 hotové a živě ověřené end-to-end (Docker + prohlížeč + reáln
 Projekt teď žije v `C:\Claude\Lab\01_PROJEKTY\poe-build-advisor` (migrace z
 OneDrive dokončená, OneDrive kopie zůstává jako needržovaná záloha).
 
+**Nasazeno na Railway**, projekt `insightful-dedication`: backend
+(`poe-build-advisor-production.up.railway.app`) + frontend
+(`unique-presence-production-b5e6.up.railway.app`), `CORS_ORIGINS` a
+`NEXT_PUBLIC_API_URL` nastavené mezi sebou, `/advisor/analyze` ověřeno živě
+z prohlížeče proti reálnému buildu. Cesta k tomu měla jednu netriviální
+překážku: Railwayho build snapshot nekopíruje obsah git submodulu, takže
+`Dockerfile` teď klonuje pinned commit `vendor/PathOfBuilding` přímo v
+build stage (`pobsrc`), nezávisle na hostitelově podpoře submodulů -- viz
+README "Nasazení (Railway)". `ANTHROPIC_API_KEY` na backendu **zatím není
+nastavený** -- uživatel ho musí doplnit sám ve Variables (nikdy ho nezadávej
+za něj).
+
 ## Klíčová pravidla
 
 - **Nikdy nefetchovat pobb.in/pastebin odkazy automaticky** -- jejich
