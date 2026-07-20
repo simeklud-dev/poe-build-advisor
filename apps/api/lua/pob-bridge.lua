@@ -18,6 +18,20 @@
 
 package.path = package.path .. ";../runtime/lua/?.lua;../runtime/lua/?/init.lua"
 
+-- PoB's own startup/ConPrintf logging ("Loading main script...", tree
+-- loading progress, etc.) goes through Lua's built-in print(), which writes
+-- to stdout by default -- exactly the channel our line-delimited JSON
+-- protocol uses. Redirect print() to stderr for the whole process lifetime
+-- so nothing but our own JSON responses (written directly via
+-- io.stdout:write in respond(), below) ever reaches stdout.
+_G.print = function(...)
+	local parts = {}
+	for i = 1, select("#", ...) do
+		parts[i] = tostring(select(i, ...))
+	end
+	io.stderr:write(table.concat(parts, "\t"), "\n")
+end
+
 dofile("HeadlessWrapper.lua")
 
 local dkjson = require("dkjson")
@@ -112,10 +126,14 @@ function handlers.import_xml(args)
 	end
 	loadBuildFromXML(args.xml, args.name or "bridge-import")
 	runCallback("OnFrame")
-	if mainObject.promptMsg then
-		error("PoB reported an error while loading the build: " .. tostring(mainObject.promptMsg))
-	end
+	-- Note: HeadlessWrapper.lua's own startup-error check (`mainObject.promptMsg`)
+	-- isn't reachable here -- `mainObject` is a local upvalue inside that file's
+	-- chunk, not a global -- so we check success at the one place we *can*
+	-- observe it: whether the build actually produced calculated output below.
 	refreshOutput()
+	if not build or not build.calcsTab or not build.calcsTab.mainOutput then
+		error("PoB failed to load the build (no calculated output after import)")
+	end
 	-- Best-effort metadata; wrapped so an internal field-name mismatch
 	-- (possible across PoB versions) never fails the whole import -- the
 	-- full numeric picture is available separately via get_summary.

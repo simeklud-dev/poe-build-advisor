@@ -12,7 +12,7 @@
 # of reimplementing its damage/defence calculations.
 
 FROM alpine:3.18 AS luabuild
-RUN apk add --no-cache cmake readline-dev build-base tar git wget
+RUN apk add --no-cache cmake readline-dev build-base tar git wget unzip curl openssl
 
 WORKDIR /opt
 RUN wget https://www.lua.org/ftp/lua-5.1.5.tar.gz && tar -xf lua-5.1.5.tar.gz \
@@ -31,7 +31,7 @@ RUN git clone https://github.com/LuaJIT/LuaJIT \
 RUN luarocks install luautf8 0.1.6-1
 
 FROM python:3.12-alpine
-RUN apk add --no-cache libreadline readline libgcc
+RUN apk add --no-cache readline libgcc
 
 COPY --from=luabuild /usr/local/bin/luajit* /usr/local/bin/
 COPY --from=luabuild /usr/local/lib/lua /usr/local/lib/lua
