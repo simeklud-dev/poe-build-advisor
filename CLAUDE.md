@@ -18,7 +18,16 @@ si ho přečti před prací na nové části projektu**.
 
 - Backend: FastAPI (Python 3.12) + subprocess bridge do LuaJIT
 - Frontend: Next.js (App Router), React 19
-- Žádná databáze v této fázi (bezstavové -- jeden request = jedna analýza)
+- Žádná databáze -- session (fáze 2) je in-memory (`app/pob/session.py`,
+  `SESSIONS`), sedí na jeden proces/uvicorn worker; restart serveru = ztráta
+  rozjetých chatů. Fáze 1 (`/advisor/analyze`) zůstává úplně bezstavová.
+
+## Stav (2026-07-20)
+
+Fáze 1 + fáze 2 hotové a živě ověřené (Docker + prohlížeč) -- viz
+`AI_BUILD_ADVISOR_PLAN.md` sekce "Poznámky ke stavu" pro detaily a co přesně
+bylo/nebylo testováno. Tool-use smyčka s Claude (`advisor_chat.py`) čeká na
+`ANTHROPIC_API_KEY` pro první živé ověření. Fáze 3 (trade) neimplementována.
 
 ## Klíčová pravidla
 

@@ -7,9 +7,12 @@ enginem (headless), ne odhadem LLM. Druhý, samostatný projekt vedle
 `AI_BUILD_ADVISOR_PLAN.md` v projektu "POE Build helper" pro plný kontext,
 architekturu a fázový plán.
 
-**Stav: fáze 1 (grounding bez simulace)** -- import buildu + reálné staty +
-volitelný jednorázový komentář od Claude. Žádná co-by-kdyby simulace ani
-trade integrace zatím (fáze 2-3).
+**Stav: fáze 2 hotová (co-by-kdyby simulace + chat)** -- import buildu,
+reálné staty, `try_item_change`/`try_node_toggle` s tool-use smyčkou přes
+Claude (`/advisor/session/{id}/chat`), export upraveného buildu. Živě
+ověřeno v Dockeru + prohlížeči; samotná Claude smyčka zatím jen do bodu
+"bez API klíče vrátí čistou chybu" (nemám k dispozici `ANTHROPIC_API_KEY` na
+testování). Fáze 3 (trade integrace) zatím není.
 
 ## Struktura repozitáře
 
@@ -19,14 +22,28 @@ poe-build-advisor/
 ├── apps/
 │   ├── api/                 # FastAPI backend
 │   │   ├── app/
-│   │   │   ├── pob/         # decode.py (base64+zlib <-> XML), bridge.py (Lua subprocess klient)
-│   │   │   ├── routers/     # advisor.py (POST /advisor/analyze)
-│   │   │   └── advisor_llm.py  # volitelný Claude komentář
+│   │   │   ├── pob/         # decode.py, bridge.py (Lua subprocess klient), session.py (fáze 2: perzistentní session)
+│   │   │   ├── routers/     # advisor.py (viz "API endpointy" níže)
+│   │   │   ├── advisor_llm.py    # fáze 1: volitelný jednorázový komentář od Claude
+│   │   │   ├── advisor_tools.py  # fáze 2: nástroje pro Claude (tool-use) + compute_delta
+│   │   │   └── advisor_chat.py   # fáze 2: tool-use smyčka (max 8 kroků)
 │   │   └── lua/pob-bridge.lua  # JSON bridge nad HeadlessWrapper.lua (kopíruje se do vendor/.../src při buildu)
-│   └── web/                 # Next.js frontend (/advisor)
+│   └── web/                 # Next.js frontend (/advisor -- rychlá analýza nebo chat session)
 ├── Dockerfile                # Python + LuaJIT, build kontext = kořen repa (ne apps/api!)
 └── scripts/smoke-test-bridge.sh
 ```
+
+### API endpointy
+
+- `POST /advisor/analyze` -- fáze 1, bezstavové: `{code}` → `{meta, summary, commentary}`.
+- `POST /advisor/session` -- fáze 2, založí session s perzistentním bridge
+  subprocessem: `{code}` → `{session_id, meta, summary}`.
+- `POST /advisor/session/{id}/chat` -- `{message}` → `{reply, summary}`;
+  Claude v tool-use smyčce zkouší `try_item_change`/`try_node_toggle` a
+  ověřuje si je na reálném enginu, než odpoví.
+- `POST /advisor/session/{id}/export` -- `{}` → `{code}` (nový PoB export kód
+  pro re-import do desktop appky).
+- `DELETE /advisor/session/{id}` -- zavře session (bridge subprocess).
 
 ## Proč headless PoB engine, ne vlastní výpočet
 
