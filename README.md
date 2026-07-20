@@ -7,11 +7,12 @@ enginem (headless), ne odhadem LLM. Druhý, samostatný projekt vedle
 `AI_BUILD_ADVISOR_PLAN.md` v projektu "POE Build helper" pro plný kontext,
 architekturu a fázový plán.
 
-**Stav: fáze 2 hotová a plně ověřená end-to-end** (co-by-kdyby simulace +
-chat s reálným `ANTHROPIC_API_KEY`) -- import buildu, reálné staty,
-`try_item_change`/`try_node_toggle` s tool-use smyčkou přes Claude
-(`/advisor/session/{id}/chat`), export upraveného buildu. Fáze 3 (trade
-integrace) zatím není.
+**Stav: fáze 1-3 hotové a plně ověřené end-to-end** -- import buildu, reálné
+staty, co-by-kdyby simulace (`try_item_change`/`try_node_toggle`) přes
+tool-use chat (`/advisor/session/{id}/chat`), export upraveného buildu, a
+živé vyhledávání na trade webu (`list_trade_leagues`/`search_trade_stats`/
+`search_trade_items`) -- vše ověřeno reálným během proti skutečnému PoB
+enginu i skutečnému PoE trade API s `ANTHROPIC_API_KEY`.
 
 ## Struktura repozitáře
 
@@ -24,8 +25,9 @@ poe-build-advisor/
 │   │   │   ├── pob/         # decode.py, bridge.py (Lua subprocess klient), session.py (fáze 2: perzistentní session)
 │   │   │   ├── routers/     # advisor.py (viz "API endpointy" níže)
 │   │   │   ├── advisor_llm.py    # fáze 1: volitelný jednorázový komentář od Claude
-│   │   │   ├── advisor_tools.py  # fáze 2: nástroje pro Claude (tool-use) + compute_delta
-│   │   │   └── advisor_chat.py   # fáze 2: tool-use smyčka (max 8 kroků)
+│   │   │   ├── advisor_tools.py  # fáze 2+3: nástroje pro Claude (tool-use) + compute_delta
+│   │   │   ├── advisor_chat.py   # fáze 2: tool-use smyčka (max 8 kroků)
+│   │   │   └── trade/            # fáze 3: rate_limiter.py, client.py (veřejné PoE trade API)
 │   │   └── lua/pob-bridge.lua  # JSON bridge nad HeadlessWrapper.lua (kopíruje se do vendor/.../src při buildu)
 │   └── web/                 # Next.js frontend (/advisor -- rychlá analýza nebo chat session)
 ├── Dockerfile                # Python + LuaJIT, build kontext = kořen repa (ne apps/api!)
@@ -52,6 +54,27 @@ riskovali, že se to rozejde s realitou), spouštíme přímo **PoB engine**
 (Lua/LuaJIT) headless na serveru -- viz `src/HeadlessWrapper.lua` ve
 vendorovaném submodulu. Čísla, která AI komentuje, jsou vždy skutečně
 spočtená, nikdy odhadnutá.
+
+## Trade integrace (fáze 3)
+
+`app/trade/` mluví přímo s veřejným PoE trade API (`pathofexile.com/api/trade/...`)
+-- **bez přihlášení**. Zjištěno živě z PoB zdrojáků
+(`vendor/PathOfBuilding/src/Classes/TradeQueryRequests.lua`): PoB posílá
+`Authorization: Bearer <token>` jen když je uživatel přihlášený přes oficiální
+OAuth, ale bez něj request stejně projde -- jen s přísnějším IP rate limitem,
+přesně jako anonymní návštěvník webu v prohlížeči. Plán původně počítal s
+`POESESSID` -- to bylo špatně, PoB ho nikde nepoužívá. Plný OAuth flow
+(registrace klienta u GGG) je mimo rozsah tohohle MVP.
+
+Rate limity se **nikde netvrdí natvrdo** -- `rate_limiter.py` je port
+`TradeQueryRateLimiter.lua`, čte skutečné `X-Rate-Limit-*` hlavičky z každé
+odpovědi (GGG čísla občas mění bez ohlášení). Stat ID (`explicit.stat_...`)
+se taky nehardkódují, natahují se živě z `/api/trade/data/stats` a cachují
+v paměti procesu.
+
+**Vědomé zúžení rozsahu:** implementováno prosté "and" filtrování statů
+(min/max), ne PoB vlastní 1300+ řádkový DPS/Life-vážený vyhledávací
+algoritmus (`TradeQueryGenerator.lua`) -- to je možné budoucí vylepšení.
 
 ## Lokální vývoj
 

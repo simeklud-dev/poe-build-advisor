@@ -24,9 +24,9 @@ si ho přečti před prací na nové části projektu**.
 
 ## Stav (2026-07-20)
 
-Fáze 1 + fáze 2 hotové a živě ověřené end-to-end (Docker + prohlížeč +
-reálný `ANTHROPIC_API_KEY` chat) -- viz `AI_BUILD_ADVISOR_PLAN.md` sekce
-"Poznámky ke stavu" pro detaily. Fáze 3 (trade) neimplementována.
+Fáze 1-3 hotové a živě ověřené end-to-end (Docker + prohlížeč + reálný
+`ANTHROPIC_API_KEY` chat + reálné PoE trade API) -- viz
+`AI_BUILD_ADVISOR_PLAN.md` sekce "Poznámky ke stavu" pro detaily.
 
 Projekt teď žije v `C:\Claude\Lab\01_PROJEKTY\poe-build-advisor` (migrace z
 OneDrive dokončená, OneDrive kopie zůstává jako needržovaná záloha).
@@ -45,10 +45,15 @@ OneDrive dokončená, OneDrive kopie zůstává jako needržovaná záloha).
 - **Bridge dumpuje celé PoB output tabulky** (`sanitize()` v
   `pob-bridge.lua`), nehardkóduje konkrétní jména statů -- necitlivé na
   přejmenování polí mezi ligami.
-- **Trade API (fáze 3, zatím neimplementováno):** až přijde na řadu, používat
-  vlastní `POESESSID` uživatele jen jako serverovou env proměnnou, nikdy do
-  frontendu/logů, a mirror rate limiteru z
-  `vendor/PathOfBuilding/spec/System/TestTradeQueryRateLimiter_spec.lua`.
+- **Trade API (fáze 3, hotovo):** `app/trade/` volá veřejné, nepřihlášené
+  trade API -- PoB nepoužívá `POESESSID` (to byl chybný předpoklad
+  původního plánu), jen volitelný OAuth Bearer token, který request bez
+  něj stejně propustí (jen přísnější IP rate limit). Rate limity se čtou
+  živě z `X-Rate-Limit-*` hlaviček (`app/trade/rate_limiter.py`, port
+  `TradeQueryRateLimiter.lua`), stat ID živě z `/api/trade/data/stats` --
+  nikde nic natvrdo. Implementováno jen prosté "and" min/max filtrování,
+  ne PoB vlastní vážený DPS/Life search (`TradeQueryGenerator.lua`, 1300+
+  řádků) -- vědomé zúžení rozsahu pro MVP.
 - **Aktuálnost enginu:** `git submodule update --remote` + smoke test
   (`scripts/smoke-test-bridge.sh`) před každým redeploy po nové lize -- viz
   plán, sekce "Aktuálnost enginu při změnách ligy".
