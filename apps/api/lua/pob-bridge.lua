@@ -105,11 +105,18 @@ local function respond(ok, payload)
 end
 
 -- Rebuilds both the fast sidebar output (MAIN) and the breakdown-enabled
--- output (CALCS) -- exactly what CalcsTabClass:BuildOutput() does when you
--- switch to the Calcs tab in the GUI. Called explicitly (rather than relying
--- on PoB's internal dirty-flag/frame-driven refresh) so results are
+-- output (CALCS) -- exactly what the GUI does on every change (Build.lua's
+-- per-frame buildFlag handler: `wipeGlobalCache() ... self.calcsTab:BuildOutput()`).
+-- wipeGlobalCache() matters: GlobalCache.cachedData caches per-active-skill
+-- calc environments keyed by a UUID that doesn't change across a tree/item
+-- edit, so without wiping it, a second recalc after e.g. deallocating a node
+-- can silently keep serving stale values for anything the skill-level cache
+-- touched (found by live-testing try_node_toggle: Life didn't revert on
+-- deallocation until this was added). Called explicitly here (rather than
+-- relying on PoB's internal dirty-flag/frame-driven refresh) so results are
 -- deterministic for a script driving the app with no render loop.
 local function refreshOutput()
+	wipeGlobalCache()
 	build.calcsTab:BuildOutput()
 end
 
@@ -170,6 +177,101 @@ function handlers.get_breakdown(args)
 		return nil
 	end
 	return sanitize(breakdown[args.stat])
+end
+
+function handlers.list_items()
+	if not build then
+		error("no build loaded -- call import_xml first")
+	end
+	local itemsTab = build.itemsTab
+	local out = {}
+	for slotName, slot in pairs(itemsTab.slots) do
+		-- Skip tree jewel-socket slots (identified by slot.nodeId) -- those
+		-- are addressed by node id via try_node_toggle/jewel handling later,
+		-- not by slot name.
+		if not slot.nodeId then
+			local activeSet = itemsTab.activeItemSet[slotName]
+			local selId = activeSet and activeSet.selItemId
+			if selId and selId ~= 0 and itemsTab.items[selId] then
+				out[slotName] = itemsTab.items[selId].raw
+			end
+		end
+	end
+	return sanitize(out)
+end
+
+--- Equips an item (given as raw in-game/PoB tooltip text) into a named slot,
+--- persists the change and recalculates. Returns MAIN-mode output before and
+--- after so the caller (Python/Claude) can compute a delta -- mirrors what
+--- happens when you paste an item over an existing one in the GUI.
+--- args: { slot = "Weapon 1", item_text = "Rarity: UNIQUE\n..." }
+function handlers.try_item_change(args)
+	if not build then
+		error("no build loaded -- call import_xml first")
+	end
+	if not args or not args.slot or not args.item_text or args.item_text == "" then
+		error("try_item_change requires 'slot' and non-empty 'item_text' arguments")
+	end
+	local itemsTab = build.itemsTab
+	if not itemsTab.slots[args.slot] then
+		error("unknown item slot: " .. tostring(args.slot) .. " (call list_items to see valid slot names)")
+	end
+
+	local before = sanitize(build.calcsTab.mainOutput)
+
+	local newItem = new("Item", args.item_text)
+	if not newItem.base then
+		error("could not parse item_text -- not a recognised PoB/in-game item tooltip format")
+	end
+	newItem:NormaliseQuality()
+	-- noAutoEquip=true: we equip explicitly into the requested slot below,
+	-- rather than letting AddItem's normal "first empty matching slot" logic
+	-- decide (which is what the GUI does for a brand new item, but here the
+	-- caller told us exactly where it goes -- possibly replacing an item
+	-- already there).
+	itemsTab:AddItem(newItem, true)
+	itemsTab.slots[args.slot]:SetSelItemId(newItem.id)
+	itemsTab:PopulateSlots()
+	refreshOutput()
+
+	return {
+		slot = args.slot,
+		before = before,
+		after = sanitize(build.calcsTab.mainOutput),
+	}
+end
+
+--- Allocates the node if it isn't allocated, deallocates it (and anything
+--- that depended on it) if it is -- same as clicking it on the tree.
+--- args: { node_id = 12345 }
+function handlers.try_node_toggle(args)
+	if not build then
+		error("no build loaded -- call import_xml first")
+	end
+	local nodeId = args and args.node_id
+	if not nodeId then
+		error("try_node_toggle requires a 'node_id' argument")
+	end
+	local node = build.spec.nodes[nodeId]
+	if not node then
+		error("unknown node id: " .. tostring(nodeId))
+	end
+
+	local before = sanitize(build.calcsTab.mainOutput)
+
+	if node.alloc then
+		build.spec:DeallocNode(node)
+	else
+		build.spec:AllocNode(node)
+	end
+	refreshOutput()
+
+	return {
+		nodeId = node.id,
+		allocated = node.alloc and true or false,
+		before = before,
+		after = sanitize(build.calcsTab.mainOutput),
+	}
 end
 
 function handlers.export_xml()
