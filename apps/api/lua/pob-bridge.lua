@@ -42,8 +42,25 @@ local dkjson = require("dkjson")
 -- them) with nil. We dump whole PoB output tables rather than hardcoding
 -- specific stat names, so the bridge doesn't need updating when upstream
 -- renames/adds fields across leagues (see AI_BUILD_ADVISOR_PLAN.md).
-local function sanitize(value, depth, seen)
+--
+-- Some output fields (e.g. ReqStrItem/ReqDexItem/ReqIntItem) hold a
+-- {source=..., sourceItem=<full Item object>} table pointing back at an
+-- entire Item instance (base data, full mod list, tooltip text...) -- found
+-- live-testing the advisor chat: one such field alone serialized to 6.5MB
+-- and blew Claude's request size limit. depth alone doesn't catch this
+-- (plenty of *wide* tables well within depth 6), so sanitize also carries a
+-- shared node-count budget across one whole top-level call and truncates
+-- long strings, to bound total output size regardless of which field it is.
+local SANITIZE_MAX_NODES = 3000
+local SANITIZE_MAX_STRING = 2000
+
+local function sanitize(value, depth, seen, budget)
 	depth = depth or 0
+	budget = budget or { count = 0 }
+	budget.count = budget.count + 1
+	if budget.count > SANITIZE_MAX_NODES then
+		return "[omitted: response too large]"
+	end
 	if depth > 6 then
 		return nil
 	end
@@ -53,7 +70,12 @@ local function sanitize(value, depth, seen)
 			return nil
 		end
 		return value
-	elseif t == "string" or t == "boolean" then
+	elseif t == "string" then
+		if #value > SANITIZE_MAX_STRING then
+			return value:sub(1, SANITIZE_MAX_STRING) .. "...[truncated]"
+		end
+		return value
+	elseif t == "boolean" then
 		return value
 	elseif t == "table" then
 		seen = seen or {}
@@ -75,22 +97,48 @@ local function sanitize(value, depth, seen)
 		if isArray then
 			local arr = {}
 			for i = 1, n do
-				arr[i] = sanitize(value[i], depth + 1, seen)
+				arr[i] = sanitize(value[i], depth + 1, seen, budget)
+				if budget.count > SANITIZE_MAX_NODES then
+					break
+				end
 			end
 			return arr
 		end
 		local out = {}
 		for k, v in pairs(value) do
 			if type(k) == "string" or type(k) == "number" then
-				local sv = sanitize(v, depth + 1, seen)
+				local sv = sanitize(v, depth + 1, seen, budget)
 				if sv ~= nil then
 					out[tostring(k)] = sv
+				end
+				if budget.count > SANITIZE_MAX_NODES then
+					break
 				end
 			end
 		end
 		return out
 	end
 	return nil
+end
+
+-- Sanitizes a big flat output table (e.g. build.calcsTab.mainOutput, ~630
+-- keys) field-by-field, each with its OWN fresh node budget. Doing the whole
+-- table as a single sanitize() call would share one budget across every
+-- field in `pairs()` iteration order (unspecified in Lua) -- if a huge field
+-- like ReqStrItem happens to be visited early, it starves the budget and
+-- every field after it gets wrongly truncated too. Per-field budgets mean a
+-- pathological field only ever truncates itself.
+local function sanitizeOutputTable(tbl)
+	local out = {}
+	for k, v in pairs(tbl) do
+		if type(k) == "string" or type(k) == "number" then
+			local sv = sanitize(v)
+			if sv ~= nil then
+				out[tostring(k)] = sv
+			end
+		end
+	end
+	return out
 end
 
 local function respond(ok, payload)
@@ -161,7 +209,7 @@ function handlers.get_summary()
 	if not build or not build.calcsTab or not build.calcsTab.mainOutput then
 		error("no build loaded -- call import_xml first")
 	end
-	return sanitize(build.calcsTab.mainOutput)
+	return sanitizeOutputTable(build.calcsTab.mainOutput)
 end
 
 --- args: { stat = "CritChance" }
@@ -217,7 +265,7 @@ function handlers.try_item_change(args)
 		error("unknown item slot: " .. tostring(args.slot) .. " (call list_items to see valid slot names)")
 	end
 
-	local before = sanitize(build.calcsTab.mainOutput)
+	local before = sanitizeOutputTable(build.calcsTab.mainOutput)
 
 	local newItem = new("Item", args.item_text)
 	if not newItem.base then
@@ -237,7 +285,7 @@ function handlers.try_item_change(args)
 	return {
 		slot = args.slot,
 		before = before,
-		after = sanitize(build.calcsTab.mainOutput),
+		after = sanitizeOutputTable(build.calcsTab.mainOutput),
 	}
 end
 
@@ -257,7 +305,7 @@ function handlers.try_node_toggle(args)
 		error("unknown node id: " .. tostring(nodeId))
 	end
 
-	local before = sanitize(build.calcsTab.mainOutput)
+	local before = sanitizeOutputTable(build.calcsTab.mainOutput)
 
 	if node.alloc then
 		build.spec:DeallocNode(node)
@@ -270,7 +318,7 @@ function handlers.try_node_toggle(args)
 		nodeId = node.id,
 		allocated = node.alloc and true or false,
 		before = before,
-		after = sanitize(build.calcsTab.mainOutput),
+		after = sanitizeOutputTable(build.calcsTab.mainOutput),
 	}
 end
 
