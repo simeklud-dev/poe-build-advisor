@@ -133,9 +133,12 @@ potřebuje jak `apps/api`, tak `vendor/PathOfBuilding`:
    volitelně `ANTHROPIC_API_KEY`.
 2. Frontend service -- Root Directory `apps/web`, env
    `NEXT_PUBLIC_API_URL` = URL backend služby.
-3. Railway musí mít povolené git submoduly při checkoutu (ověř v service
-   settings -- pokud ne, bude potřeba submodul vendorovat jinak, např. přes
-   build-time `git submodule update --init` v Dockerfile).
+3. Git submoduly: Railwayho build snapshot obsah submodulu necheckoutuje
+   (`vendor/PathOfBuilding` je v uploadnutém kontextu prázdný adresář), takže
+   Dockerfile submodul vůbec nepoužívá jako build context -- místo toho ho v
+   samostatném build stage (`pobsrc`) klonuje přímo z GitHubu na pinned commit
+   (stejný, na jaký ukazuje lokální submodul). Funguje tak identicky lokálně
+   i na Railway bez ohledu na to, jestli hostitel submoduly umí checkoutnout.
 
 ## Poznámka
 

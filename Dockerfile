@@ -11,6 +11,19 @@
 # sibling "POE Build helper" project) for why we run PoB's own engine instead
 # of reimplementing its damage/defence calculations.
 
+# Railway's build snapshot does not check out git submodule contents (the
+# COPY vendor/PathOfBuilding/... steps below used to fail with "not found"
+# because vendor/PathOfBuilding was an empty dir in the uploaded context even
+# though it builds fine locally where the submodule is checked out). Fetch
+# the exact pinned submodule commit directly instead of depending on the
+# build context -- works the same locally and on any CI/host regardless of
+# submodule checkout support. Keep this commit in sync with
+# `git -C vendor/PathOfBuilding rev-parse HEAD`.
+FROM alpine:3.18 AS pobsrc
+RUN apk add --no-cache git
+RUN git clone https://github.com/PathOfBuildingCommunity/PathOfBuilding.git /opt/pob \
+	&& cd /opt/pob && git checkout 03ae46279c6570facabc5fb65ec5d171edc339fd
+
 FROM alpine:3.18 AS luabuild
 RUN apk add --no-cache cmake readline-dev build-base tar git wget unzip curl openssl
 
@@ -43,12 +56,18 @@ WORKDIR /app
 COPY apps/api/requirements.txt apps/api/requirements.txt
 RUN pip install --no-cache-dir -r apps/api/requirements.txt
 
-# Vendored PoB engine (git submodule) + our bridge script copied alongside
-# HeadlessWrapper.lua, exactly where it expects to be run from (see
-# .busted in the submodule: directory = "src").
-COPY vendor/PathOfBuilding/src ./vendor/PathOfBuilding/src
-COPY vendor/PathOfBuilding/runtime ./vendor/PathOfBuilding/runtime
+# Vendored PoB engine (pinned commit, fetched in the pobsrc stage above) +
+# our bridge script copied alongside HeadlessWrapper.lua, exactly where it
+# expects to be run from (see .busted in the submodule: directory = "src").
+COPY --from=pobsrc /opt/pob/src ./vendor/PathOfBuilding/src
+COPY --from=pobsrc /opt/pob/runtime ./vendor/PathOfBuilding/runtime
 COPY apps/api/lua/pob-bridge.lua ./vendor/PathOfBuilding/src/pob-bridge.lua
+
+# Sample builds only (~600KB), so scripts/smoke-test-bridge.sh can run
+# straight inside this image after every league-update rebuild, as documented
+# in its own header comment -- not the full spec/ dir (busted itself isn't
+# vendored here, this image never runs the Lua test suite).
+COPY --from=pobsrc /opt/pob/spec/TestBuilds ./vendor/PathOfBuilding/spec/TestBuilds
 
 COPY apps/api/app ./apps/api/app
 COPY scripts ./scripts
