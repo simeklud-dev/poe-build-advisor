@@ -33,7 +33,7 @@ class PobBridge:
         self._timeout = timeout
         self._process: subprocess.Popen[str] | None = None
 
-    def __enter__(self) -> "PobBridge":
+    def start(self) -> "PobBridge":
         self._process = subprocess.Popen(
             [self._lua_executable, "pob-bridge.lua"],
             cwd=self._pob_src_dir,
@@ -45,7 +45,7 @@ class PobBridge:
         )
         return self
 
-    def __exit__(self, *exc_info: object) -> None:
+    def stop(self) -> None:
         process = self._process
         self._process = None
         if process is None:
@@ -56,6 +56,16 @@ class PobBridge:
             process.wait(timeout=self._timeout)
         except subprocess.TimeoutExpired:
             process.kill()
+
+    @property
+    def is_running(self) -> bool:
+        return self._process is not None and self._process.poll() is None
+
+    def __enter__(self) -> "PobBridge":
+        return self.start()
+
+    def __exit__(self, *exc_info: object) -> None:
+        self.stop()
 
     def call(self, cmd: str, args: dict[str, Any] | None = None) -> Any:
         process = self._process
