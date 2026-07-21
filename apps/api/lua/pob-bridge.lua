@@ -248,6 +248,36 @@ function handlers.list_items()
 	return sanitize(out)
 end
 
+--- Lists configured skill gems, grouped exactly as PoB's Skills tab shows
+--- them (one entry per socket group/skill set slot). Mirrors list_items --
+--- was missing entirely before, so the advisor had no way to see equipped
+--- gems at all (not a decode bug, a genuinely absent tool).
+function handlers.list_skills()
+	if not build then
+		error("no build loaded -- call import_xml first")
+	end
+	local out = {}
+	for i, socketGroup in ipairs(build.skillsTab.socketGroupList) do
+		local gems = {}
+		for _, gem in ipairs(socketGroup.gemList) do
+			table.insert(gems, {
+				name = gem.nameSpec,
+				level = gem.level,
+				quality = gem.quality,
+				enabled = gem.enabled,
+			})
+		end
+		table.insert(out, {
+			label = socketGroup.label,
+			slot = socketGroup.slot,
+			enabled = socketGroup.enabled,
+			isMainSkill = (i == build.mainSocketGroup),
+			gems = gems,
+		})
+	end
+	return sanitize(out)
+end
+
 --- Equips an item (given as raw in-game/PoB tooltip text) into a named slot,
 --- persists the change and recalculates. Returns MAIN-mode output before and
 --- after so the caller (Python/Claude) can compute a delta -- mirrors what

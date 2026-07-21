@@ -43,6 +43,16 @@ TOOLS: list[dict[str, Any]] = [
         "input_schema": {"type": "object", "properties": {}},
     },
     {
+        "name": "list_skills",
+        "description": (
+            "Vrátí nakonfigurované skill gemy po skupinách přesně tak, jak je "
+            "ukazuje PoB Skills tab -- pro každou skupinu label/slot, jestli "
+            "je zapnutá, jestli je to hlavní (DPS) skupina, a seznam gemů "
+            "(jméno, level, quality, zapnutý/vypnutý)."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "try_item_change",
         "description": (
             "Nasadí item (syrový text přesně ve formátu z in-game kopie / PoB) "
@@ -223,6 +233,8 @@ def dispatch_tool(session: PobSession, name: str, tool_input: dict[str, Any]) ->
         return bridge.call("get_breakdown", {"stat": tool_input["stat"]})
     if name == "list_equipped_items":
         return bridge.call("list_items")
+    if name == "list_skills":
+        return bridge.call("list_skills")
     if name == "try_item_change":
         result = bridge.call("try_item_change", {"slot": tool_input["slot"], "item_text": tool_input["item_text"]})
         return {"slot": result["slot"], "delta": compute_delta(result["before"], result["after"])}
