@@ -22,26 +22,41 @@ si ho přečti před prací na nové části projektu**.
   `SESSIONS`), sedí na jeden proces/uvicorn worker; restart serveru = ztráta
   rozjetých chatů. Fáze 1 (`/advisor/analyze`) zůstává úplně bezstavová.
 
-## Stav (2026-07-20)
+## Stav (2026-07-21)
 
-Fáze 1-3 hotové a živě ověřené end-to-end (Docker + prohlížeč + reálný
-`ANTHROPIC_API_KEY` chat + reálné PoE trade API) -- viz
-`AI_BUILD_ADVISOR_PLAN.md` sekce "Poznámky ke stavu" pro detaily.
+Fáze 1-3 hotové a živě ověřené end-to-end **na uživatelově reálném buildu**
+na nasazené appce (ne jen na testovacím) -- viz `AI_BUILD_ADVISOR_PLAN.md`
+sekce "Poznámky ke stavu" pro detaily.
 
 Projekt teď žije v `C:\Claude\Lab\01_PROJEKTY\poe-build-advisor` (migrace z
 OneDrive dokončená, OneDrive kopie zůstává jako needržovaná záloha).
 
-**Nasazeno na Railway**, projekt `insightful-dedication`: backend
+**Nasazeno na Railway a funkční**, projekt `insightful-dedication`: backend
 (`poe-build-advisor-production.up.railway.app`) + frontend
 (`unique-presence-production-b5e6.up.railway.app`), `CORS_ORIGINS` a
-`NEXT_PUBLIC_API_URL` nastavené mezi sebou, `/advisor/analyze` ověřeno živě
-z prohlížeče proti reálnému buildu. Cesta k tomu měla jednu netriviální
-překážku: Railwayho build snapshot nekopíruje obsah git submodulu, takže
-`Dockerfile` teď klonuje pinned commit `vendor/PathOfBuilding` přímo v
-build stage (`pobsrc`), nezávisle na hostitelově podpoře submodulů -- viz
-README "Nasazení (Railway)". `ANTHROPIC_API_KEY` na backendu **zatím není
-nastavený** -- uživatel ho musí doplnit sám ve Variables (nikdy ho nezadávej
-za něj).
+`NEXT_PUBLIC_API_URL` nastavené mezi sebou. `ANTHROPIC_API_KEY` je
+nastavený a funkční. Cesta k tomu měla jednu netriviální překážku:
+Railwayho build snapshot nekopíruje obsah git submodulu, takže `Dockerfile`
+teď klonuje pinned commit `vendor/PathOfBuilding` přímo v build stage
+(`pobsrc`), nezávisle na hostitelově podpoře submodulů -- viz README
+"Nasazení (Railway)".
+
+**Náklady a spolehlivost tool-use chatu (fáze 2), viz README "Náklady a
+spolehlivost":** živé testování odhalilo a opravilo řetězec problémů --
+`get_build_summary` posílal celý ~630klíčový dump (~18 600 tokenů) při
+každém volání (fix: `curate_summary()`, ~30 statů), `compute_delta` u
+`try_item_change`/`try_node_toggle` protahoval vnořené PoB interní tabulky
+(fix: jen skalární hodnoty), chyběly nástroje `list_skills` a
+`list_passive_tree` (AI neměla ŽÁDNÝ způsob, jak vidět gemy/strom -- ne
+halucinace, reálná díra), a tool-use smyčka mohla vyčerpat všech
+`MAX_TOOL_ITERATIONS` bez odpovědi (fix: poslední kolo nedostane nástroje,
+takže MUSÍ odpovědět textem, plus vlastní vyšší `max_tokens`). Přidán i
+prompt caching a efektivnější system prompt (méně zbytečných kol).
+
+**Známý drobný nedostatek (TODO, uživatel vědomě odložil na později):**
+`search_trade_items` nevrací hotový klikatelný `trade_url`, jen `query_id`
+-- AI proto trade linky občas nepřesně domýšlí. Viz README "Trade
+integrace".
 
 ## Klíčová pravidla
 
@@ -69,6 +84,16 @@ za něj).
 - **Aktuálnost enginu:** `git submodule update --remote` + smoke test
   (`scripts/smoke-test-bridge.sh`) před každým redeploy po nové lize -- viz
   plán, sekce "Aktuálnost enginu při změnách ligy".
+- **Nová AI tool = nový bridge handler, ne pokus o odvození ze `get_summary`**:
+  `get_summary`/`get_breakdown` pokrývají jen calc výstup, ne skilly
+  (`build.skillsTab.socketGroupList`) ani strom (`build.spec.allocNodes`) --
+  na obojí byl potřeba samostatný handler (`list_skills`,
+  `list_passive_tree`). Když uživatel řekne "AI nevidí X", nejdřív zkontroluj,
+  jestli pro X vůbec existuje nástroj, než to řešíš jako parsing/prompt bug.
+- **Payload každého nového nástroje měř, než ho nasadíš** -- `get_build_summary`
+  i `compute_delta` vypadaly nevinně, ale oba dokázaly poslat desítky až
+  stovky KB do jednoho tool_result (viz README "Náklady a spolehlivost").
+  Vždy zkontroluj velikost výstupu na reálném (ne jen testovacím) buildu.
 
 ## Poznámka k údržbě
 
