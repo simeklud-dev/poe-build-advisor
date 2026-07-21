@@ -88,7 +88,12 @@ def run_chat_turn(session: PobSession, user_message: str) -> str:
 
         kwargs = dict(
             model=settings.anthropic_model,
-            max_tokens=4096,
+            # The forced text-only last iteration has to synthesize
+            # everything gathered across skills/gear/tree into one answer --
+            # measured hitting the 4096 default on a real, fully-built
+            # character. Give it real headroom; intermediate tool-use rounds
+            # rarely write long prose so 4096 stays plenty for those.
+            max_tokens=8192 if is_last_iteration else 4096,
             # SYSTEM_PROMPT + TOOLS are byte-identical on every single call --
             # within one turn's tool loop (up to MAX_TOOL_ITERATIONS calls) and
             # across every turn of every session. Caching them means only the
@@ -110,14 +115,23 @@ def run_chat_turn(session: PobSession, user_message: str) -> str:
         response = client.messages.create(**kwargs)
 
         if response.stop_reason == "max_tokens":
+            if is_last_iteration:
+                # No tools were offered on this call, so there's no dangling
+                # tool_use risk here (that's what the discard-and-generic-
+                # message fallback below exists to avoid) -- a truncated
+                # answer, even cut off mid-sentence, is still more useful to
+                # the user than a "too long, try again" message with nothing
+                # in it. Return whatever text made it out.
+                text = "".join(block.text for block in response.content if block.type == "text")
+                if text:
+                    return text
             # Claude got cut off mid-response -- do NOT append this message to
             # chat_history. A truncated turn can end with tool_use blocks that
             # never got a matching tool_result (Claude was cut off before
             # finishing them), and the Anthropic API rejects any *next* call
             # whose history contains such a dangling tool_use -- that would
             # permanently break every future turn in this session, not just
-            # this one. Bumping max_tokens to 4096 (from 1500) makes this rare
-            # in practice, but the fallback still needs to be safe.
+            # this one.
             logger.warning("advisor chat response truncated at max_tokens, discarding turn")
             return (
                 "Odpověď byla příliš dlouhá a musel jsem ji uříznout -- zkus "
