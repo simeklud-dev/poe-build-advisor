@@ -1,15 +1,21 @@
-"""Tool-use smyčka: Claude iterativně zkouší úpravy buildu přes reálný PoB engine.
+"""Tool-use smyčka: Gemini iterativně zkouší úpravy buildu přes reálný PoB engine.
 
 Fáze 2 (viz AI_BUILD_ADVISOR_PLAN.md) -- na rozdíl od fáze 1 (`advisor_llm.py`,
-jednorázový komentář), tady Claude dostane nástroje 1:1 namapované na bridge
+jednorázový komentář), tady model dostane nástroje 1:1 namapované na bridge
 operace (`advisor_tools.py`) a v cyklu volání/odpověď si sám ověřuje
 hypotézy na reálných číslech z PoB enginu, než něco doporučí.
+
+Poskytovatel: Google Gemini (free tier) -- viz AI_BUILD_ADVISOR_PLAN.md,
+sekce o migraci z Anthropic Claude. Google's prompt caching nemá tady
+smysl (Gemini free tier nemá cenu za token, kterou by bylo co optimalizovat),
+takže se oproti dřívější Claude verzi vypouští, nepřekládá.
 """
 
 from __future__ import annotations
 
-import json
 import logging
+
+from google.genai import types
 
 from app.advisor_tools import TOOLS, curate_summary, dispatch_tool
 from app.config import settings
@@ -67,109 +73,143 @@ class AdvisorChatError(RuntimeError):
     pass
 
 
+def _to_gemini_tool(tools: list[dict]) -> types.Tool:
+    """TOOLS (advisor_tools.py) is already a plain JSON-schema-shaped list --
+    Gemini's FunctionDeclaration takes that schema verbatim via
+    parameters_json_schema, so this is a field rename, not a rewrite."""
+    return types.Tool(
+        function_declarations=[
+            types.FunctionDeclaration(
+                name=t["name"],
+                description=t["description"],
+                parameters_json_schema=t["input_schema"],
+            )
+            for t in tools
+        ]
+    )
+
+
+GEMINI_TOOL = _to_gemini_tool(TOOLS)
+
+
+def _to_plain(value):
+    """Recursively convert whatever the Gemini SDK hands back for a
+    function_call's `args` (observed as a plain dict in testing, but the
+    exact wrapper type is an SDK implementation detail not worth trusting
+    blindly -- see AI_BUILD_ADVISOR_PLAN.md verification notes) into plain
+    JSON-safe Python types. search_trade_items's stat_filters is a nested
+    array-of-objects, so a shallow dict() cast alone isn't enough."""
+    if hasattr(value, "items"):
+        return {k: _to_plain(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_to_plain(v) for v in value]
+    return value
+
+
 def run_chat_turn(session: PobSession, user_message: str) -> str:
-    import anthropic
+    from google import genai
 
-    if not settings.anthropic_api_key:
-        raise AdvisorChatError("ANTHROPIC_API_KEY není nastavený na serveru")
+    if not settings.gemini_api_key:
+        raise AdvisorChatError("GEMINI_API_KEY není nastavený na serveru")
 
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    session.chat_history.append({"role": "user", "content": user_message})
+    client = genai.Client(api_key=settings.gemini_api_key)
+    session.chat_history.append({"role": "user", "parts": [{"text": user_message}]})
 
     for iteration in range(MAX_TOOL_ITERATIONS):
         is_last_iteration = iteration == MAX_TOOL_ITERATIONS - 1
 
-        # Cache-friendly for every normal call (identical text -> cache hit);
-        # only the last 2 iterations use a longer, uncached variant so a
-        # near-exhausted turn wraps up instead of mechanically running out.
         system_text = SYSTEM_PROMPT
         if iteration >= MAX_TOOL_ITERATIONS - 2:
             system_text += WRAP_UP_REMINDER
 
-        kwargs = dict(
-            model=settings.anthropic_model,
+        config = types.GenerateContentConfig(
+            system_instruction=system_text,
             # The forced text-only last iteration has to synthesize
             # everything gathered across skills/gear/tree into one answer --
             # measured hitting the 4096 default on a real, fully-built
             # character. Give it real headroom; intermediate tool-use rounds
             # rarely write long prose so 4096 stays plenty for those.
-            max_tokens=8192 if is_last_iteration else 4096,
-            # SYSTEM_PROMPT + TOOLS are byte-identical on every single call --
-            # within one turn's tool loop (up to MAX_TOOL_ITERATIONS calls) and
-            # across every turn of every session. Caching them means only the
-            # first call in a while pays full price; the rest read this prefix
-            # at ~10% cost.
-            system=[{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}],
-            messages=session.chat_history,
-        )
-        if not is_last_iteration:
+            max_output_tokens=8192 if is_last_iteration else 4096,
             # On a real, fully-built character (many items/gems/tree nodes),
-            # the WRAP_UP_REMINDER alone wasn't enough -- Claude judged it
+            # WRAP_UP_REMINDER alone wasn't enough -- the model judged it
             # genuinely still needed more tool calls and kept going anyway,
             # exhausting every iteration and hitting the hard fallback below
             # with nothing to show for it. Omitting `tools` entirely on the
-            # last iteration makes stop_reason != "tool_use" structurally
-            # guaranteed, so this loop always ends with a real synthesized
+            # last iteration makes emitting a function_call structurally
+            # impossible, so this loop always ends with a real synthesized
             # answer instead of the empty fallback.
-            kwargs["tools"] = TOOLS
-        response = client.messages.create(**kwargs)
+            tools=None if is_last_iteration else [GEMINI_TOOL],
+        )
+        response = client.models.generate_content(
+            model=settings.gemini_model,
+            contents=session.chat_history,
+            config=config,
+        )
 
-        if response.stop_reason == "max_tokens":
+        if not response.candidates:
+            logger.warning(
+                "advisor chat: no candidates in Gemini response (prompt_feedback=%s)",
+                getattr(response, "prompt_feedback", None),
+            )
+            return (
+                "Odpověď byla zablokovaná bezpečnostním filtrem -- zkus "
+                "prosím otázku přeformulovat."
+            )
+
+        candidate = response.candidates[0]
+        parts = candidate.content.parts if candidate.content else []
+
+        if candidate.finish_reason == types.FinishReason.MAX_TOKENS:
             if is_last_iteration:
                 # No tools were offered on this call, so there's no dangling
-                # tool_use risk here (that's what the discard-and-generic-
-                # message fallback below exists to avoid) -- a truncated
-                # answer, even cut off mid-sentence, is still more useful to
-                # the user than a "too long, try again" message with nothing
-                # in it. Return whatever text made it out.
-                text = "".join(block.text for block in response.content if block.type == "text")
+                # function_call risk here (that's what the discard-and-
+                # generic-message fallback below exists to avoid) -- a
+                # truncated answer, even cut off mid-sentence, is still more
+                # useful to the user than a "too long, try again" message
+                # with nothing in it. Return whatever text made it out.
+                text = "".join(p.text for p in parts if p.text)
                 if text:
                     return text
-            # Claude got cut off mid-response -- do NOT append this message to
-            # chat_history. A truncated turn can end with tool_use blocks that
-            # never got a matching tool_result (Claude was cut off before
-            # finishing them), and the Anthropic API rejects any *next* call
-            # whose history contains such a dangling tool_use -- that would
-            # permanently break every future turn in this session, not just
-            # this one.
             logger.warning("advisor chat response truncated at max_tokens, discarding turn")
             return (
                 "Odpověď byla příliš dlouhá a musel jsem ji uříznout -- zkus "
                 "prosím konkrétnější nebo kratší otázku."
             )
 
-        session.chat_history.append({"role": "assistant", "content": response.content})
+        function_calls = [p.function_call for p in parts if p.function_call]
 
-        if response.stop_reason != "tool_use":
-            return "".join(block.text for block in response.content if block.type == "text")
+        session.chat_history.append(candidate.content.model_dump(exclude_none=True))
 
-        tool_results = []
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
+        if not function_calls:
+            return "".join(p.text for p in parts if p.text)
+
+        response_parts = []
+        for call in function_calls:
             try:
-                result = dispatch_tool(session, block.name, block.input)
-                if block.name == "get_build_summary":
+                result = dispatch_tool(session, call.name, _to_plain(call.args))
+                if call.name == "get_build_summary":
                     result = curate_summary(result)
-                content = json.dumps(result, ensure_ascii=False)
-                is_error = False
+                payload = {"result": result}
             except Exception as exc:
-                logger.exception("advisor tool %s failed", block.name)
-                content = str(exc)
-                is_error = True
-            tool_results.append(
-                {
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": content,
-                    "is_error": is_error,
-                }
+                logger.exception("advisor tool %s failed", call.name)
+                # Gemini's function response has no first-class is_error flag
+                # like Anthropic's tool_result -- the "error" key presence is
+                # the signal the model reads instead.
+                payload = {"error": str(exc)}
+            response_parts.append(
+                types.Part.from_function_response(name=call.name, response=payload).model_dump(
+                    exclude_none=True
+                )
             )
-        session.chat_history.append({"role": "user", "content": tool_results})
+        # Gemini rejects role="tool" (400 INVALID_ARGUMENT) despite what the docs
+        # implied -- confirmed via live smoke test. Valid roles for this are just
+        # user/model; function responses go back as "user", mirroring Anthropic's
+        # own convention of using "user" role for tool_result messages.
+        session.chat_history.append({"role": "user", "parts": response_parts})
 
     # Should be unreachable now that the last iteration omits `tools` (forcing
-    # a text response), but kept as a last-resort guard in case Claude ever
-    # returns no text blocks at all on that call.
+    # a text response), but kept as a last-resort guard in case the model
+    # ever returns no text parts at all on that call.
     return (
         "Omlouvám se, došel mi počet kroků na ověřování v tomhle tahu -- "
         "zkus prosím pokračovat další zprávou, naváži na to, co už vím."

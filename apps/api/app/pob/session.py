@@ -3,7 +3,7 @@
 Na rozdíl od fáze 1 (`PobBridge` jako per-request context manager v
 `/advisor/analyze`), tady bridge subprocess zůstává naživu napříč více HTTP
 požadavky téhož chatu -- jinak by `try_item_change`/`try_node_toggle` nemohly
-stavět jedna na druhé (Claude zkusí item, podívá se na deltu, zkusí jiný...).
+stavět jedna na druhé (AI zkusí item, podívá se na deltu, zkusí jiný...).
 
 In-memory store (`SESSIONS`) -- sedí na jeden proces/instanci backendu; při
 restartu serveru se session ztratí, uživatel musí znovu vložit PoB kód. Pro

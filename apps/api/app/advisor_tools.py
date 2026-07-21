@@ -1,7 +1,7 @@
-"""Nástroje (tools) pro Claude nad co-by-kdyby operacemi bridge (fáze 2).
+"""Nástroje (tools) pro AI (Gemini) nad co-by-kdyby operacemi bridge (fáze 2).
 
 Každý nástroj je tenký obal nad `PobBridge.call(...)` (viz
-`app/pob/bridge.py`, `apps/api/lua/pob-bridge.lua`) -- Claude nikdy nepočítá
+`app/pob/bridge.py`, `apps/api/lua/pob-bridge.lua`) -- AI nikdy nepočítá
 čísla sám, jen volá tyhle nástroje a reaguje na reálný výsledek z PoB enginu.
 """
 
@@ -168,14 +168,14 @@ TOOLS: list[dict[str, Any]] = [
 
 
 # get_build_summary's raw PoB dump is ~630 keys / ~18,600 tokens (measured on
-# a real build) -- sent whole into Claude's context on every single call and
+# a real build) -- sent whole into the AI's context on every single call and
 # then kept in chat_history forever, this alone dominated per-turn API cost.
 # This is the handful of stats an advisor actually reasons about, mirroring
 # apps/web/src/app/advisor/StatsPanel.tsx plus a few offence/charge stats the
 # UI doesn't show but advice-giving needs (crit, accuracy, per-element max
 # hit, dot dps). HTTP endpoints (session create/chat response, /analyze) call
 # dispatch_tool directly and still get the FULL summary for the frontend's
-# "zobrazit vsechna surova data" toggle -- only what Claude sees is trimmed.
+# "zobrazit vsechna surova data" toggle -- only what the AI sees is trimmed.
 CURATED_SUMMARY_FIELDS = [
     "Life", "LifeUnreserved", "EnergyShield", "Mana", "ManaUnreserved",
     "TotalEHP",
@@ -194,7 +194,7 @@ def curate_summary(full: dict[str, Any]) -> dict[str, Any]:
 
 
 def compute_delta(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
-    """Vrátí jen staty, které se změnily -- posílat Claude celý 630polí dump
+    """Vrátí jen staty, které se změnily -- posílat AI celý 630polí dump
     před/po by zbytečně žral kontext, delta je to, co ho zajímá.
 
     Skalární staty (čísla/stringy/bool) jsou to jediné, co sem patří -- pole

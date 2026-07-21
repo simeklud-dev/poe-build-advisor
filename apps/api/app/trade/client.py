@@ -101,7 +101,7 @@ class TradeClient:
         return self._stats_cache
 
     def search_stats(self, query_text: str, limit: int = 15) -> list[dict[str, Any]]:
-        """Substring search over the stat catalog -- used by Claude to resolve a
+        """Substring search over the stat catalog -- used by the AI to resolve a
         human stat description (e.g. "maximum life") to a real trade stat id
         before calling search_items."""
         needle = query_text.strip().lower()
@@ -182,7 +182,7 @@ class TradeClient:
         return items
 
     def search_stat_by_id(self, stat_id: str) -> dict[str, Any] | None:
-        """Exact-id lookup, used to validate a stat id Claude picked from a
+        """Exact-id lookup, used to validate a stat id the AI picked from a
         prior search_stats call before spending a real search request on it."""
         for entry in self.fetch_stats_catalog():
             if entry.get("id") == stat_id:

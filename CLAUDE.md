@@ -34,7 +34,7 @@ OneDrive dokončená, OneDrive kopie zůstává jako needržovaná záloha).
 **Nasazeno na Railway a funkční**, projekt `insightful-dedication`: backend
 (`poe-build-advisor-production.up.railway.app`) + frontend
 (`unique-presence-production-b5e6.up.railway.app`), `CORS_ORIGINS` a
-`NEXT_PUBLIC_API_URL` nastavené mezi sebou. `ANTHROPIC_API_KEY` je
+`NEXT_PUBLIC_API_URL` nastavené mezi sebou. `GEMINI_API_KEY` je
 nastavený a funkční. Cesta k tomu měla jednu netriviální překážku:
 Railwayho build snapshot nekopíruje obsah git submodulu, takže `Dockerfile`
 teď klonuje pinned commit `vendor/PathOfBuilding` přímo v build stage
@@ -50,8 +50,23 @@ každém volání (fix: `curate_summary()`, ~30 statů), `compute_delta` u
 `list_passive_tree` (AI neměla ŽÁDNÝ způsob, jak vidět gemy/strom -- ne
 halucinace, reálná díra), a tool-use smyčka mohla vyčerpat všech
 `MAX_TOOL_ITERATIONS` bez odpovědi (fix: poslední kolo nedostane nástroje,
-takže MUSÍ odpovědět textem, plus vlastní vyšší `max_tokens`). Přidán i
-prompt caching a efektivnější system prompt (méně zbytečných kol).
+takže MUSÍ odpovědět textem, plus vlastní vyšší `max_output_tokens`).
+Přidán i efektivnější system prompt (méně zbytečných kol).
+
+**2026-07-21: migrace z Anthropic Claude na Google Gemini free tier** --
+čistě výměna LLM poskytovatele, žádná změna chování/funkcionality. Důvod:
+Claude API stálo při běžném testování reálné peníze, Gemini free tier je
+zdarma (klíč z aistudio.google.com, nesouvisí se spotřebitelským
+předplatným Google AI Plus/Pro). Zachováno 1:1: tool-use smyčka, curated
+summary, capped delta, poslední kolo bez nástrojů + vyšší
+`max_output_tokens` na něm. Vypuštěný (ne přeložený): prompt caching --
+Anthropic-specifická optimalizace nákladů, kterou zdarma Gemini tier
+nepotřebuje. Model: `gemini-flash-latest` (Googlem udržovaný alias na
+aktuální doporučený flash model -- `gemini-2.5-flash`, původní volba,
+byl při implementaci zjištěn jako vyřazený pro nové API klíče, proto
+alias místo pevné verze). Živě ověřeno end-to-end (Docker + reálný PoB
+engine + skutečné trade API) -- viz `AI_BUILD_ADVISOR_PLAN.md` (projekt
+"POE Build helper") pro plný plán a ověřené API tvary.
 
 **Známý drobný nedostatek (TODO, uživatel vědomě odložil na později):**
 `search_trade_items` nevrací hotový klikatelný `trade_url`, jen `query_id`

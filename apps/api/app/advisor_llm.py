@@ -1,9 +1,11 @@
-"""Volitelný jednorázový komentář od Claude nad staty buildu spočtenými PoB enginem.
+"""Volitelný jednorázový komentář od AI nad staty buildu spočtenými PoB enginem.
 
 Fáze 1 (viz AI_BUILD_ADVISOR_PLAN.md): žádná tool-use smyčka -- jen jedno
-vyhodnocení nad hotovým `get_summary()` výstupem z `app/pob/bridge.py`. Claude
+vyhodnocení nad hotovým `get_summary()` výstupem z `app/pob/bridge.py`. Model
 tedy nic nepočítá ani neodhaduje, jen komentuje reálná čísla z enginu. Tool-use
 smyčka s co-by-kdyby simulací (try_item_change apod.) přijde ve fázi 2.
+
+Poskytovatel: Google Gemini (free tier) -- viz AI_BUILD_ADVISOR_PLAN.md.
 """
 
 from __future__ import annotations
@@ -29,19 +31,23 @@ SYSTEM_PROMPT = (
 
 def summarize_build(summary: dict[str, Any]) -> str | None:
     """Vrátí krátký komentář, nebo None (chybějící klíč / chyba volání -- endpoint funguje dál i bez toho)."""
-    if not settings.anthropic_api_key:
+    if not settings.gemini_api_key:
         return None
     try:
-        import anthropic
+        from google import genai
+        from google.genai import types
 
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-        message = client.messages.create(
-            model=settings.anthropic_model,
-            max_tokens=500,
-            system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
-            messages=[{"role": "user", "content": json.dumps(curate_summary(summary), ensure_ascii=False)}],
+        client = genai.Client(api_key=settings.gemini_api_key)
+        response = client.models.generate_content(
+            model=settings.gemini_model,
+            contents=[
+                {"role": "user", "parts": [{"text": json.dumps(curate_summary(summary), ensure_ascii=False)}]}
+            ],
+            config=types.GenerateContentConfig(system_instruction=SYSTEM_PROMPT, max_output_tokens=500),
         )
-        return "".join(block.text for block in message.content if block.type == "text") or None
+        parts = response.candidates[0].content.parts if response.candidates and response.candidates[0].content else []
+        text = "".join(p.text for p in parts if p.text)
+        return text or None
     except Exception:
-        logger.exception("Claude commentary call failed; continuing without it")
+        logger.exception("Gemini commentary call failed; continuing without it")
         return None

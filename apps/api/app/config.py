@@ -23,10 +23,15 @@ class Settings(BaseSettings):
     pob_src_dir: str = _default_pob_src_dir
     pob_bridge_timeout_seconds: float = 30.0
 
-    # Volitelný jednorázový komentář od Claude nad staty spočtenými bridge
-    # (app/advisor_llm.py) -- bez klíče endpoint funguje dál, jen bez komentáře.
-    anthropic_api_key: str = ""
-    anthropic_model: str = "claude-sonnet-5"
+    # AI komentář/chat nad staty spočtenými bridge (app/advisor_llm.py,
+    # app/advisor_chat.py) -- Google Gemini free tier (zdarma API klíč z
+    # aistudio.google.com, žádné Anthropic tokeny). Bez klíče endpointy
+    # fungují dál, jen bez AI komentáře/chatu.
+    gemini_api_key: str = ""
+    # gemini-2.5-flash je vyřazený pro nové API klíče (404 na živém testu) --
+    # gemini-flash-latest je Googlem udržovaný alias na aktuální doporučený
+    # flash model, takže se stejná retirace nebude opakovat při každé nové generaci.
+    gemini_model: str = "gemini-flash-latest"
 
     @property
     def cors_origins_list(self) -> list[str]:
