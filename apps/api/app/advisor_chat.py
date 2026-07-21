@@ -46,16 +46,20 @@ SYSTEM_PROMPT = (
     "přes search_trade_items) -- ne k volnému průzkumu variant."
 )
 
-MAX_TOOL_ITERATIONS = 8
+MAX_TOOL_ITERATIONS = 10
 
-# Injected only for the last couple of iterations -- a graceful nudge to
-# conclude with whatever's already known instead of mechanically hitting the
-# MAX_TOOL_ITERATIONS fallback below with nothing to show for it.
+# Injected on the second-to-last iteration -- a nudge to wrap up. On its own
+# this wasn't enough on a real, fully-built character (many items/gems/tree
+# nodes to review): the model judged it genuinely still needed more tool
+# calls and kept going anyway, hitting the hard MAX_TOOL_ITERATIONS fallback
+# below with nothing to show for it every time. The actual guarantee is
+# structural, not a request -- see the last-iteration tools omission below.
 WRAP_UP_REMINDER = (
-    "\n\nDOŠLA TI TÉMĚŘ VŠECHNA KOLA NA POUŽÍVÁNÍ NÁSTROJŮ v tomhle tahu. "
-    "Pokud ještě potřebuješ ověřit něco zásadního, udělej to teď -- jinak "
-    "rovnou napiš finální odpověď s doporučením na základě toho, co už víš, "
-    "místo dalšího zkoumání."
+    "\n\nZBÝVÁ TI JEDNO POSLEDNÍ KOLO, KDY MŮŽEŠ POUŽÍT NÁSTROJ. Pokud ještě "
+    "potřebuješ ověřit něco zásadního, udělej to přesně teď -- příští "
+    "odpověď od tebe už MUSÍ být čistý text bez volání nástrojů (systém ti "
+    "žádný nenabídne), takže shrň doporučení na základě toho, co do té doby "
+    "budeš vědět."
 )
 
 
@@ -73,13 +77,16 @@ def run_chat_turn(session: PobSession, user_message: str) -> str:
     session.chat_history.append({"role": "user", "content": user_message})
 
     for iteration in range(MAX_TOOL_ITERATIONS):
+        is_last_iteration = iteration == MAX_TOOL_ITERATIONS - 1
+
         # Cache-friendly for every normal call (identical text -> cache hit);
         # only the last 2 iterations use a longer, uncached variant so a
         # near-exhausted turn wraps up instead of mechanically running out.
         system_text = SYSTEM_PROMPT
         if iteration >= MAX_TOOL_ITERATIONS - 2:
             system_text += WRAP_UP_REMINDER
-        response = client.messages.create(
+
+        kwargs = dict(
             model=settings.anthropic_model,
             max_tokens=4096,
             # SYSTEM_PROMPT + TOOLS are byte-identical on every single call --
@@ -88,9 +95,19 @@ def run_chat_turn(session: PobSession, user_message: str) -> str:
             # first call in a while pays full price; the rest read this prefix
             # at ~10% cost.
             system=[{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}],
-            tools=TOOLS,
             messages=session.chat_history,
         )
+        if not is_last_iteration:
+            # On a real, fully-built character (many items/gems/tree nodes),
+            # the WRAP_UP_REMINDER alone wasn't enough -- Claude judged it
+            # genuinely still needed more tool calls and kept going anyway,
+            # exhausting every iteration and hitting the hard fallback below
+            # with nothing to show for it. Omitting `tools` entirely on the
+            # last iteration makes stop_reason != "tool_use" structurally
+            # guaranteed, so this loop always ends with a real synthesized
+            # answer instead of the empty fallback.
+            kwargs["tools"] = TOOLS
+        response = client.messages.create(**kwargs)
 
         if response.stop_reason == "max_tokens":
             # Claude got cut off mid-response -- do NOT append this message to
@@ -136,6 +153,9 @@ def run_chat_turn(session: PobSession, user_message: str) -> str:
             )
         session.chat_history.append({"role": "user", "content": tool_results})
 
+    # Should be unreachable now that the last iteration omits `tools` (forcing
+    # a text response), but kept as a last-resort guard in case Claude ever
+    # returns no text blocks at all on that call.
     return (
         "Omlouvám se, došel mi počet kroků na ověřování v tomhle tahu -- "
         "zkus prosím pokračovat další zprávou, naváži na to, co už vím."
