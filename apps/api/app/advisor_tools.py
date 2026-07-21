@@ -146,12 +146,47 @@ TOOLS: list[dict[str, Any]] = [
 ]
 
 
+# get_build_summary's raw PoB dump is ~630 keys / ~18,600 tokens (measured on
+# a real build) -- sent whole into Claude's context on every single call and
+# then kept in chat_history forever, this alone dominated per-turn API cost.
+# This is the handful of stats an advisor actually reasons about, mirroring
+# apps/web/src/app/advisor/StatsPanel.tsx plus a few offence/charge stats the
+# UI doesn't show but advice-giving needs (crit, accuracy, per-element max
+# hit, dot dps). HTTP endpoints (session create/chat response, /analyze) call
+# dispatch_tool directly and still get the FULL summary for the frontend's
+# "zobrazit vsechna surova data" toggle -- only what Claude sees is trimmed.
+CURATED_SUMMARY_FIELDS = [
+    "Life", "LifeUnreserved", "EnergyShield", "Mana", "ManaUnreserved",
+    "TotalEHP",
+    "Armour", "Evasion", "BlockChance", "SpellBlockChance", "MovementSpeedMod",
+    "FireResist", "ColdResist", "LightningResist", "ChaosResist",
+    "TotalDPS", "CombinedDPS", "FullDPS", "WithBleedDPS", "TotalDotDPS",
+    "CritChance", "CritMultiplier", "AccuracyHitChance",
+    "PhysicalMaximumHitTaken", "FireMaximumHitTaken", "ColdMaximumHitTaken",
+    "LightningMaximumHitTaken", "ChaosMaximumHitTaken",
+    "Strength", "Dexterity", "Intelligence",
+]
+
+
+def curate_summary(full: dict[str, Any]) -> dict[str, Any]:
+    return {key: full[key] for key in CURATED_SUMMARY_FIELDS if key in full}
+
+
 def compute_delta(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
     """Vrátí jen staty, které se změnily -- posílat Claude celý 630polí dump
-    před/po by zbytečně žral kontext, delta je to, co ho zajímá."""
+    před/po by zbytečně žral kontext, delta je to, co ho zajímá.
+
+    Skalární staty (čísla/stringy/bool) jsou to jediné, co sem patří -- pole
+    typu list/dict jsou PoB interní bookkeeping tabulky (např. item
+    back-reference cache), který i po per-field sanitize budgetu v
+    pob-bridge.lua zůstává řádově desítky KB, a když se nasadí item, změní se
+    jich naráz víc -- naměřeno až 122 KB v jedné odpovědi nástroje. AI z nich
+    stejně nic nevytěží, na konkrétní stat má get_stat_breakdown."""
     delta: dict[str, Any] = {}
     for key in set(before) | set(after):
         b, a = before.get(key), after.get(key)
+        if isinstance(b, (dict, list)) or isinstance(a, (dict, list)):
+            continue
         if b != a:
             entry: dict[str, Any] = {"before": b, "after": a}
             if isinstance(b, (int, float)) and isinstance(a, (int, float)):

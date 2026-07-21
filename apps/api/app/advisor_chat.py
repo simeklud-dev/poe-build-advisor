@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import logging
 
-from app.advisor_tools import TOOLS, dispatch_tool
+from app.advisor_tools import TOOLS, curate_summary, dispatch_tool
 from app.config import settings
 from app.pob.session import PobSession
 
@@ -57,7 +57,12 @@ def run_chat_turn(session: PobSession, user_message: str) -> str:
         response = client.messages.create(
             model=settings.anthropic_model,
             max_tokens=4096,
-            system=SYSTEM_PROMPT,
+            # SYSTEM_PROMPT + TOOLS are byte-identical on every single call --
+            # within one turn's tool loop (up to MAX_TOOL_ITERATIONS calls) and
+            # across every turn of every session. Caching them means only the
+            # first call in a while pays full price; the rest read this prefix
+            # at ~10% cost.
+            system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
             tools=TOOLS,
             messages=session.chat_history,
         )
@@ -88,6 +93,8 @@ def run_chat_turn(session: PobSession, user_message: str) -> str:
                 continue
             try:
                 result = dispatch_tool(session, block.name, block.input)
+                if block.name == "get_build_summary":
+                    result = curate_summary(result)
                 content = json.dumps(result, ensure_ascii=False)
                 is_error = False
             except Exception as exc:

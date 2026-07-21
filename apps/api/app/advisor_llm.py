@@ -12,6 +12,7 @@ import json
 import logging
 from typing import Any
 
+from app.advisor_tools import curate_summary
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -37,8 +38,8 @@ def summarize_build(summary: dict[str, Any]) -> str | None:
         message = client.messages.create(
             model=settings.anthropic_model,
             max_tokens=500,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": json.dumps(summary, ensure_ascii=False)}],
+            system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": json.dumps(curate_summary(summary), ensure_ascii=False)}],
         )
         return "".join(block.text for block in message.content if block.type == "text") or None
     except Exception:
