@@ -278,6 +278,41 @@ function handlers.list_skills()
 	return sanitize(out)
 end
 
+--- Same gap as list_skills, same fix -- try_node_toggle can flip a node
+--- given its id, but nothing ever listed which ids are actually allocated,
+--- so the advisor had no way to summarize "what's on my tree". Returns
+--- class/ascendancy/points spent plus the notable/keystone/mastery nodes
+--- (name + their stat lines) -- not every single small +10-stat node, those
+--- are filler that would bloat the payload without giving the advisor
+--- anything to reason about.
+function handlers.list_passive_tree()
+	if not build or not build.spec then
+		error("no build loaded -- call import_xml first")
+	end
+	local notables, keystones, masteries = {}, {}, {}
+	local pointsUsed = 0
+	for _, node in pairs(build.spec.allocNodes) do
+		if node.type ~= "ClassStart" and node.type ~= "AscendClassStart" then
+			pointsUsed = pointsUsed + 1
+		end
+		if node.type == "Keystone" then
+			table.insert(keystones, { name = node.dn, mods = node.sd })
+		elseif node.type == "Notable" then
+			table.insert(notables, { name = node.dn, mods = node.sd })
+		elseif node.type == "Mastery" then
+			table.insert(masteries, { name = node.dn, mods = node.sd })
+		end
+	end
+	return sanitize({
+		class = build.spec.curClassName,
+		ascendancy = build.spec.curAscendClassName,
+		pointsUsed = pointsUsed,
+		keystones = keystones,
+		notables = notables,
+		masteries = masteries,
+	})
+end
+
 --- Equips an item (given as raw in-game/PoB tooltip text) into a named slot,
 --- persists the change and recalculates. Returns MAIN-mode output before and
 --- after so the caller (Python/Claude) can compute a delta -- mirrors what

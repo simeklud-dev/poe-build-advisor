@@ -53,6 +53,17 @@ TOOLS: list[dict[str, Any]] = [
         "input_schema": {"type": "object", "properties": {}},
     },
     {
+        "name": "list_passive_tree",
+        "description": (
+            "Vrátí přehled pasivního stromu: třída, ascendancy, počet "
+            "utracených bodů, a seznam alokovaných keystonů/notables/"
+            "masteries (jméno + jejich staty). Neuvádí každý drobný "
+            "+staty uzel jednotlivě -- na konkrétní uzel k odalokování/"
+            "alokování použij try_node_toggle s jeho ID."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "try_item_change",
         "description": (
             "Nasadí item (syrový text přesně ve formátu z in-game kopie / PoB) "
@@ -235,6 +246,8 @@ def dispatch_tool(session: PobSession, name: str, tool_input: dict[str, Any]) ->
         return bridge.call("list_items")
     if name == "list_skills":
         return bridge.call("list_skills")
+    if name == "list_passive_tree":
+        return bridge.call("list_passive_tree")
     if name == "try_item_change":
         result = bridge.call("try_item_change", {"slot": tool_input["slot"], "item_text": tool_input["item_text"]})
         return {"slot": result["slot"], "delta": compute_delta(result["before"], result["after"])}
