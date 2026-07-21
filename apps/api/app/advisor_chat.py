@@ -34,10 +34,29 @@ SYSTEM_PROMPT = (
     "nepoužívej jméno z tréninkových dat), pak najdi správné ID statu "
     "(search_trade_stats -- nikdy si ID nevymýšlej) a teprve pak hledej "
     "(search_trade_items). Ceny a nabídky jsou živá data z trade webu, ne "
-    "z PoB enginu -- řekni to jasně, když je zmiňuješ."
+    "z PoB enginu -- řekni to jasně, když je zmiňuješ.\n\n"
+    "Buď efektivní s počtem volání nástrojů (máš jich na jeden tah omezené "
+    "množství): get_build_summary/get_stat_breakdown v rámci jednoho tahu "
+    "zavolej jen jednou, ne opakovaně, pokud jsi mezitím build nezměnil. Na "
+    "obecné otázky ('na co se zaměřit', 'jak zlepším přežití/damage') "
+    "odpověz přímo z dat, která už máš -- NEZKOUŠEJ postupně víc "
+    "hypotetických itemů/uzlů přes try_item_change/try_node_toggle jen "
+    "abys ilustroval možnosti. Tyhle nástroje na ověření použij, jen když "
+    "doporučuješ KONKRÉTNÍ item nebo uzel (zmíněný uživatelem, nebo nalezený "
+    "přes search_trade_items) -- ne k volnému průzkumu variant."
 )
 
 MAX_TOOL_ITERATIONS = 8
+
+# Injected only for the last couple of iterations -- a graceful nudge to
+# conclude with whatever's already known instead of mechanically hitting the
+# MAX_TOOL_ITERATIONS fallback below with nothing to show for it.
+WRAP_UP_REMINDER = (
+    "\n\nDOŠLA TI TÉMĚŘ VŠECHNA KOLA NA POUŽÍVÁNÍ NÁSTROJŮ v tomhle tahu. "
+    "Pokud ještě potřebuješ ověřit něco zásadního, udělej to teď -- jinak "
+    "rovnou napiš finální odpověď s doporučením na základě toho, co už víš, "
+    "místo dalšího zkoumání."
+)
 
 
 class AdvisorChatError(RuntimeError):
@@ -53,7 +72,13 @@ def run_chat_turn(session: PobSession, user_message: str) -> str:
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     session.chat_history.append({"role": "user", "content": user_message})
 
-    for _ in range(MAX_TOOL_ITERATIONS):
+    for iteration in range(MAX_TOOL_ITERATIONS):
+        # Cache-friendly for every normal call (identical text -> cache hit);
+        # only the last 2 iterations use a longer, uncached variant so a
+        # near-exhausted turn wraps up instead of mechanically running out.
+        system_text = SYSTEM_PROMPT
+        if iteration >= MAX_TOOL_ITERATIONS - 2:
+            system_text += WRAP_UP_REMINDER
         response = client.messages.create(
             model=settings.anthropic_model,
             max_tokens=4096,
@@ -62,7 +87,7 @@ def run_chat_turn(session: PobSession, user_message: str) -> str:
             # across every turn of every session. Caching them means only the
             # first call in a while pays full price; the rest read this prefix
             # at ~10% cost.
-            system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+            system=[{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}],
             tools=TOOLS,
             messages=session.chat_history,
         )
