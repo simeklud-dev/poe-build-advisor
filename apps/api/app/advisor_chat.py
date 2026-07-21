@@ -56,11 +56,27 @@ def run_chat_turn(session: PobSession, user_message: str) -> str:
     for _ in range(MAX_TOOL_ITERATIONS):
         response = client.messages.create(
             model=settings.anthropic_model,
-            max_tokens=1500,
+            max_tokens=4096,
             system=SYSTEM_PROMPT,
             tools=TOOLS,
             messages=session.chat_history,
         )
+
+        if response.stop_reason == "max_tokens":
+            # Claude got cut off mid-response -- do NOT append this message to
+            # chat_history. A truncated turn can end with tool_use blocks that
+            # never got a matching tool_result (Claude was cut off before
+            # finishing them), and the Anthropic API rejects any *next* call
+            # whose history contains such a dangling tool_use -- that would
+            # permanently break every future turn in this session, not just
+            # this one. Bumping max_tokens to 4096 (from 1500) makes this rare
+            # in practice, but the fallback still needs to be safe.
+            logger.warning("advisor chat response truncated at max_tokens, discarding turn")
+            return (
+                "Odpověď byla příliš dlouhá a musel jsem ji uříznout -- zkus "
+                "prosím konkrétnější nebo kratší otázku."
+            )
+
         session.chat_history.append({"role": "assistant", "content": response.content})
 
         if response.stop_reason != "tool_use":

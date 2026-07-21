@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { StatsPanel } from "./StatsPanel";
 
 type AnalyzeResponse = {
   meta: Record<string, unknown>;
@@ -139,7 +140,7 @@ export default function AdvisorPage() {
   }
 
   return (
-    <main style={{ maxWidth: 760, margin: "40px auto", padding: "0 16px" }}>
+    <main style={{ maxWidth: 960, margin: "40px auto", padding: "0 16px" }}>
       <h1>Analyza buildu</h1>
       <p style={{ opacity: 0.7 }}>
         Vloz PoB export kod (Path of Building &rarr; Export Build &rarr; Generate code) -- ne odkaz na
@@ -174,24 +175,22 @@ export default function AdvisorPage() {
             <p style={{ background: "#1c1c1c", padding: 12, borderRadius: 6 }}>{result.commentary}</p>
           )}
           <h2>Staty (z realneho PoB enginu)</h2>
-          <pre style={{ whiteSpace: "pre-wrap", background: "#1c1c1c", padding: 12, borderRadius: 6, overflowX: "auto" }}>
-            {JSON.stringify(result.summary, null, 2)}
-          </pre>
+          <StatsPanel summary={result.summary} />
         </div>
       )}
 
       {sessionId && (
         <div style={{ marginTop: 24 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ opacity: 0.7, fontSize: 14 }}>
-              TotalDPS: {String(summary?.TotalDPS ?? "?")} &middot; Life: {String(summary?.Life ?? "?")} &middot;
-              EnergyShield: {String(summary?.EnergyShield ?? "?")}
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={handleExport}>Stahnout upraveny kod</button>
-              <button onClick={handleReset}>Novy build</button>
-            </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button onClick={handleExport}>Stahnout upraveny kod</button>
+            <button onClick={handleReset}>Novy build</button>
           </div>
+
+          {summary && (
+            <div style={{ marginTop: 12 }}>
+              <StatsPanel summary={summary} />
+            </div>
+          )}
 
           <div style={{ marginTop: 16, border: "1px solid #333", borderRadius: 6, padding: 12, minHeight: 200 }}>
             {messages.length === 0 && (
