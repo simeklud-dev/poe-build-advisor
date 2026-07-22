@@ -74,6 +74,26 @@ class AdvisorChatError(RuntimeError):
     pass
 
 
+def _compact_turn_history(
+    session: PobSession, history_len_before_turn: int, user_message: str, reply_text: str
+) -> None:
+    """Collapse a finished turn's tool-call scratch work down to just the
+    visible question + final answer before it's carried into the next
+    turn's context. Gemini has no server-side prompt caching the way
+    Anthropic did -- every generate_content call resends the *entire*
+    history verbatim -- so left uncompacted, a session's per-call token
+    cost (and therefore how fast it eats the free tier's per-minute TPM
+    budget) grows without bound across turns, even though only the
+    intermediate function_call/function_response plumbing drove that
+    growth, not the answer itself. The final text reply already contains
+    whatever the tool calls turned up (item stats, trade links, deltas),
+    so the model doesn't lose real information it needs for follow-ups --
+    only the scratch work to get there."""
+    del session.chat_history[history_len_before_turn:]
+    session.chat_history.append({"role": "user", "parts": [{"text": user_message}]})
+    session.chat_history.append({"role": "model", "parts": [{"text": reply_text}]})
+
+
 def _to_gemini_tool(tools: list[dict]) -> types.Tool:
     """TOOLS (advisor_tools.py) is already a plain JSON-schema-shaped list --
     Gemini's FunctionDeclaration takes that schema verbatim via
@@ -189,6 +209,7 @@ def run_chat_turn(session: PobSession, user_message: str) -> str:
                 # with nothing in it. Return whatever text made it out.
                 text = "".join(p.text for p in parts if p.text)
                 if text:
+                    _compact_turn_history(session, history_len_before_turn, user_message, text)
                     return text
             logger.warning("advisor chat response truncated at max_tokens, discarding turn")
             return (
@@ -201,7 +222,9 @@ def run_chat_turn(session: PobSession, user_message: str) -> str:
         session.chat_history.append(candidate.content.model_dump(exclude_none=True))
 
         if not function_calls:
-            return "".join(p.text for p in parts if p.text)
+            text = "".join(p.text for p in parts if p.text)
+            _compact_turn_history(session, history_len_before_turn, user_message, text)
+            return text
 
         response_parts = []
         for call in function_calls:
