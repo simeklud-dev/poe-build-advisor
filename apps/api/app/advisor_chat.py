@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 
+from google.genai import errors as genai_errors
 from google.genai import types
 
 from app.advisor_tools import TOOLS, curate_summary, dispatch_tool
@@ -113,6 +114,11 @@ def run_chat_turn(session: PobSession, user_message: str) -> str:
         raise AdvisorChatError("GEMINI_API_KEY není nastavený na serveru")
 
     client = genai.Client(api_key=settings.gemini_api_key)
+    # Snapshot so a mid-turn API failure (e.g. quota exhausted after several
+    # tool-call rounds) can roll the whole turn back instead of leaving a
+    # dangling user message or half-finished tool-call exchange in history
+    # for the next request to choke on.
+    history_len_before_turn = len(session.chat_history)
     session.chat_history.append({"role": "user", "parts": [{"text": user_message}]})
 
     for iteration in range(MAX_TOOL_ITERATIONS):
@@ -140,11 +146,25 @@ def run_chat_turn(session: PobSession, user_message: str) -> str:
             # answer instead of the empty fallback.
             tools=None if is_last_iteration else [GEMINI_TOOL],
         )
-        response = client.models.generate_content(
-            model=settings.gemini_model,
-            contents=session.chat_history,
-            config=config,
-        )
+        try:
+            response = client.models.generate_content(
+                model=settings.gemini_model,
+                contents=session.chat_history,
+                config=config,
+            )
+        except genai_errors.APIError as exc:
+            # Roll back so a retry starts clean instead of piling onto a
+            # broken turn -- see history_len_before_turn note above.
+            del session.chat_history[history_len_before_turn:]
+            if exc.code == 429:
+                logger.warning("Gemini free-tier quota/rate limit hit: %s", exc)
+                return (
+                    "Došel volný limit Gemini API (zdarma tier má omezený počet "
+                    "dotazů za den/minutu) -- zkus to prosím za chvíli znovu, "
+                    "limit se pravidelně obnovuje."
+                )
+            logger.exception("Gemini API call failed")
+            return "Volání Gemini API selhalo -- zkus to prosím znovu."
 
         if not response.candidates:
             logger.warning(

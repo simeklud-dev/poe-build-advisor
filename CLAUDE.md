@@ -61,12 +61,23 @@ předplatným Google AI Plus/Pro). Zachováno 1:1: tool-use smyčka, curated
 summary, capped delta, poslední kolo bez nástrojů + vyšší
 `max_output_tokens` na něm. Vypuštěný (ne přeložený): prompt caching --
 Anthropic-specifická optimalizace nákladů, kterou zdarma Gemini tier
-nepotřebuje. Model: `gemini-flash-latest` (Googlem udržovaný alias na
-aktuální doporučený flash model -- `gemini-2.5-flash`, původní volba,
-byl při implementaci zjištěn jako vyřazený pro nové API klíče, proto
-alias místo pevné verze). Živě ověřeno end-to-end (Docker + reálný PoB
-engine + skutečné trade API) -- viz `AI_BUILD_ADVISOR_PLAN.md` (projekt
-"POE Build helper") pro plný plán a ověřené API tvary.
+nepotřebuje. Model: `gemini-flash-lite-latest` (Googlem udržovaný
+auto-update alias). Cesta k němu měla dvě další živě odhalené překážky:
+`gemini-2.5-flash` (původní volba) je vyřazený pro nové API klíče (404);
+`gemini-flash-latest` (druhá volba) funguje, ale aktuálně ukazuje na
+`gemini-3.6-flash`, jehož zdarma denní kvóta je jen 20 requestů/den --
+jeden chat tah (až `MAX_TOOL_ITERATIONS=10` kol, každé 1 Gemini call) to
+sám dokáže vyčerpat, což se živě stalo (uživatel dostal "Failed to fetch"
+po ~5 min čekání, backend padal s nezachyceným `429 RESOURCE_EXHAUSTED`).
+Oprava má dvě části: (1) `-lite` varianta má citelně vyšší volnou kvótu
+(ověřeno živě, ostatní modely vč. `gemini-2.0-flash` byly ve stejnou
+chvíli taky vyčerpané), (2) `run_chat_turn()` teď `google.genai.errors.APIError`
+zachytává a při 429 vrací srozumitelnou českou zprávu + vrátí
+`chat_history` do stavu před tahem (žádný napůl hotový tah v historii),
+místo nezachyceného pádu na holé "Internal Server Error". Živě ověřeno
+end-to-end (Docker + reálný PoB engine + skutečné trade API) -- viz
+`AI_BUILD_ADVISOR_PLAN.md` (projekt "POE Build helper") pro plný plán a
+ověřené API tvary.
 
 **Známý drobný nedostatek (TODO, uživatel vědomě odložil na později):**
 `search_trade_items` nevrací hotový klikatelný `trade_url`, jen `query_id`

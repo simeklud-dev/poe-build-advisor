@@ -28,10 +28,14 @@ class Settings(BaseSettings):
     # aistudio.google.com, žádné Anthropic tokeny). Bez klíče endpointy
     # fungují dál, jen bez AI komentáře/chatu.
     gemini_api_key: str = ""
-    # gemini-2.5-flash je vyřazený pro nové API klíče (404 na živém testu) --
-    # gemini-flash-latest je Googlem udržovaný alias na aktuální doporučený
-    # flash model, takže se stejná retirace nebude opakovat při každé nové generaci.
-    gemini_model: str = "gemini-flash-latest"
+    # gemini-2.5-flash je vyřazený pro nové API klíče (404 na živém testu).
+    # gemini-flash-latest fungoval, ale živě se ukázalo, že aktuálně ukazuje
+    # na gemini-3.6-flash, jehož denní zdarma kvóta je jen 20 requestů/den --
+    # jeden chat tah (až MAX_TOOL_ITERATIONS kol) to sám umí vyčerpat.
+    # gemini-flash-lite-latest (taky Googlem udržovaný auto-update alias, ne
+    # pevná verze) měl při stejném živém testu volnou kvótu a tool-calling
+    # funguje spolehlivě stejně -- viz AI_BUILD_ADVISOR_PLAN.md.
+    gemini_model: str = "gemini-flash-lite-latest"
 
     @property
     def cors_origins_list(self) -> list[str]:
