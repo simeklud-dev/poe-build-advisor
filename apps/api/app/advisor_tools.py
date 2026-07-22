@@ -216,9 +216,11 @@ def compute_delta(before: dict[str, Any], after: dict[str, Any]) -> dict[str, An
     return delta
 
 
-def dispatch_tool(session: PobSession, name: str, tool_input: dict[str, Any]) -> Any:
+def dispatch_tool(session: PobSession | None, name: str, tool_input: dict[str, Any]) -> Any:
     # Trade tools don't touch the PoB build/bridge at all -- handled first so
-    # `session.bridge` is never dereferenced for them.
+    # `session.bridge` is never dereferenced for them. This is also why
+    # `session` can be None here (see advisor_chat.py::run_free_chat_turn,
+    # the build-less brainstorm mode) -- it only ever offers trade tools.
     if name == "list_trade_leagues":
         return {"leagues": [entry["id"] for entry in TRADE_CLIENT.fetch_leagues()]}
     if name == "search_trade_stats":

@@ -14,6 +14,7 @@ takže se oproti dřívější Claude verzi vypouští, nepřekládá.
 from __future__ import annotations
 
 import logging
+from typing import Any, Callable
 
 from google.genai import errors as genai_errors
 from google.genai import types
@@ -53,6 +54,29 @@ SYSTEM_PROMPT = (
     "přes search_trade_items) -- ne k volnému průzkumu variant."
 )
 
+# Brainstorm chat bez nahraného buildu (viz app/free_chat_session.py) -- žádná
+# session, žádný bridge, takže žádné PoB-vázané nástroje (get_build_summary,
+# try_item_change, ...). Trade nástroje ale fungují nezávisle na buildu
+# (dispatch_tool je vyřizuje před tím, než se sáhne na session.bridge), takže
+# tenhle mód pořád může doporučit reálné itemy s reálnou cenou -- jen bez
+# ověření na skutečném enginu, protože žádný build zatím neexistuje.
+FREE_CHAT_SYSTEM_PROMPT = (
+    "Jsi zkušený Path of Exile theorycrafter. Uživatel zatím NEMÁ nahraný "
+    "žádný build -- pomáháš mu vymyslet koncept od nuly (např. 'chci hrát "
+    "skill X, chci hodně damage a rychlý clear, defenzíva mě moc nezajímá'). "
+    "Nemáš přístup k PoB enginu ani k žádným reálným statům postavy -- "
+    "všechny návrhy jsou z tvých obecných znalostí hry, ne ověřené výpočtem. "
+    "Řekni to uživateli jasně, hlavně u konkrétních čísel DPS/EHP (odhad, "
+    "ne měření). Piš česky, stručně a konkrétně -- skill, hlavní support "
+    "gemy, klíčové unique itemy nebo ascendancy, na co narazí za slabiny. "
+    "Máš k dispozici trade nástroje (list_trade_leagues/search_trade_stats/"
+    "search_trade_items) na reálné ceny/dostupnost itemů -- nejdřív zjisti "
+    "ligu, pak správné ID statu (nikdy si ID nevymýšlej), teprve pak hledej. "
+    "Na konci dej uživateli najevo, že jakmile si build sestaví v Path of "
+    "Building a vloží export kód do appky, můžeš návrh ověřit na reálném "
+    "enginu a doladit."
+)
+
 MAX_TOOL_ITERATIONS = 10
 
 # Injected on the second-to-last iteration -- a nudge to wrap up. On its own
@@ -75,7 +99,7 @@ class AdvisorChatError(RuntimeError):
 
 
 def _compact_turn_history(
-    session: PobSession, history_len_before_turn: int, user_message: str, reply_text: str
+    chat_history: list[dict[str, Any]], history_len_before_turn: int, user_message: str, reply_text: str
 ) -> None:
     """Collapse a finished turn's tool-call scratch work down to just the
     visible question + final answer before it's carried into the next
@@ -89,9 +113,9 @@ def _compact_turn_history(
     whatever the tool calls turned up (item stats, trade links, deltas),
     so the model doesn't lose real information it needs for follow-ups --
     only the scratch work to get there."""
-    del session.chat_history[history_len_before_turn:]
-    session.chat_history.append({"role": "user", "parts": [{"text": user_message}]})
-    session.chat_history.append({"role": "model", "parts": [{"text": reply_text}]})
+    del chat_history[history_len_before_turn:]
+    chat_history.append({"role": "user", "parts": [{"text": user_message}]})
+    chat_history.append({"role": "model", "parts": [{"text": reply_text}]})
 
 
 def _to_gemini_tool(tools: list[dict]) -> types.Tool:
@@ -112,6 +136,9 @@ def _to_gemini_tool(tools: list[dict]) -> types.Tool:
 
 GEMINI_TOOL = _to_gemini_tool(TOOLS)
 
+FREE_CHAT_TOOL_NAMES = {"list_trade_leagues", "search_trade_stats", "search_trade_items"}
+FREE_CHAT_GEMINI_TOOL = _to_gemini_tool([t for t in TOOLS if t["name"] in FREE_CHAT_TOOL_NAMES])
+
 
 def _to_plain(value):
     """Recursively convert whatever the Gemini SDK hands back for a
@@ -127,7 +154,17 @@ def _to_plain(value):
     return value
 
 
-def run_chat_turn(session: PobSession, user_message: str) -> str:
+def _run_turn(
+    chat_history: list[dict[str, Any]],
+    user_message: str,
+    *,
+    system_prompt: str,
+    gemini_tool: types.Tool,
+    dispatch: Callable[[str, dict[str, Any]], Any],
+) -> str:
+    """Shared tool-use loop behind both run_chat_turn (real PoB session) and
+    run_free_chat_turn (no build loaded yet, trade tools only) -- the two
+    only differ in which tools/system prompt/dispatch function they pass in."""
     from google import genai
 
     if not settings.gemini_api_key:
@@ -138,13 +175,13 @@ def run_chat_turn(session: PobSession, user_message: str) -> str:
     # tool-call rounds) can roll the whole turn back instead of leaving a
     # dangling user message or half-finished tool-call exchange in history
     # for the next request to choke on.
-    history_len_before_turn = len(session.chat_history)
-    session.chat_history.append({"role": "user", "parts": [{"text": user_message}]})
+    history_len_before_turn = len(chat_history)
+    chat_history.append({"role": "user", "parts": [{"text": user_message}]})
 
     for iteration in range(MAX_TOOL_ITERATIONS):
         is_last_iteration = iteration == MAX_TOOL_ITERATIONS - 1
 
-        system_text = SYSTEM_PROMPT
+        system_text = system_prompt
         if iteration >= MAX_TOOL_ITERATIONS - 2:
             system_text += WRAP_UP_REMINDER
 
@@ -164,18 +201,18 @@ def run_chat_turn(session: PobSession, user_message: str) -> str:
             # last iteration makes emitting a function_call structurally
             # impossible, so this loop always ends with a real synthesized
             # answer instead of the empty fallback.
-            tools=None if is_last_iteration else [GEMINI_TOOL],
+            tools=None if is_last_iteration else [gemini_tool],
         )
         try:
             response = client.models.generate_content(
                 model=settings.gemini_model,
-                contents=session.chat_history,
+                contents=chat_history,
                 config=config,
             )
         except genai_errors.APIError as exc:
             # Roll back so a retry starts clean instead of piling onto a
             # broken turn -- see history_len_before_turn note above.
-            del session.chat_history[history_len_before_turn:]
+            del chat_history[history_len_before_turn:]
             if exc.code == 429:
                 logger.warning("Gemini free-tier quota/rate limit hit: %s", exc)
                 return (
@@ -209,7 +246,7 @@ def run_chat_turn(session: PobSession, user_message: str) -> str:
                 # with nothing in it. Return whatever text made it out.
                 text = "".join(p.text for p in parts if p.text)
                 if text:
-                    _compact_turn_history(session, history_len_before_turn, user_message, text)
+                    _compact_turn_history(chat_history, history_len_before_turn, user_message, text)
                     return text
             logger.warning("advisor chat response truncated at max_tokens, discarding turn")
             return (
@@ -219,19 +256,17 @@ def run_chat_turn(session: PobSession, user_message: str) -> str:
 
         function_calls = [p.function_call for p in parts if p.function_call]
 
-        session.chat_history.append(candidate.content.model_dump(exclude_none=True))
+        chat_history.append(candidate.content.model_dump(exclude_none=True))
 
         if not function_calls:
             text = "".join(p.text for p in parts if p.text)
-            _compact_turn_history(session, history_len_before_turn, user_message, text)
+            _compact_turn_history(chat_history, history_len_before_turn, user_message, text)
             return text
 
         response_parts = []
         for call in function_calls:
             try:
-                result = dispatch_tool(session, call.name, _to_plain(call.args))
-                if call.name == "get_build_summary":
-                    result = curate_summary(result)
+                result = dispatch(call.name, _to_plain(call.args))
                 payload = {"result": result}
             except Exception as exc:
                 logger.exception("advisor tool %s failed", call.name)
@@ -248,7 +283,7 @@ def run_chat_turn(session: PobSession, user_message: str) -> str:
         # implied -- confirmed via live smoke test. Valid roles for this are just
         # user/model; function responses go back as "user", mirroring Anthropic's
         # own convention of using "user" role for tool_result messages.
-        session.chat_history.append({"role": "user", "parts": response_parts})
+        chat_history.append({"role": "user", "parts": response_parts})
 
     # Should be unreachable now that the last iteration omits `tools` (forcing
     # a text response), but kept as a last-resort guard in case the model
@@ -256,4 +291,37 @@ def run_chat_turn(session: PobSession, user_message: str) -> str:
     return (
         "Omlouvám se, došel mi počet kroků na ověřování v tomhle tahu -- "
         "zkus prosím pokračovat další zprávou, naváži na to, co už vím."
+    )
+
+
+def run_chat_turn(session: PobSession, user_message: str) -> str:
+    def dispatch(name: str, tool_input: dict[str, Any]) -> Any:
+        result = dispatch_tool(session, name, tool_input)
+        if name == "get_build_summary":
+            result = curate_summary(result)
+        return result
+
+    return _run_turn(
+        session.chat_history,
+        user_message,
+        system_prompt=SYSTEM_PROMPT,
+        gemini_tool=GEMINI_TOOL,
+        dispatch=dispatch,
+    )
+
+
+def run_free_chat_turn(chat_history: list[dict[str, Any]], user_message: str) -> str:
+    """Brainstorm chat with no PoB session -- see FREE_CHAT_SYSTEM_PROMPT.
+    Only trade tools are ever offered, and dispatch_tool handles those
+    before touching `session.bridge`, so passing None here is safe."""
+
+    def dispatch(name: str, tool_input: dict[str, Any]) -> Any:
+        return dispatch_tool(None, name, tool_input)  # type: ignore[arg-type]
+
+    return _run_turn(
+        chat_history,
+        user_message,
+        system_prompt=FREE_CHAT_SYSTEM_PROMPT,
+        gemini_tool=FREE_CHAT_GEMINI_TOOL,
+        dispatch=dispatch,
     )

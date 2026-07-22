@@ -1,10 +1,11 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, field_validator
 
-from app.advisor_chat import AdvisorChatError, run_chat_turn
+from app.advisor_chat import AdvisorChatError, run_chat_turn, run_free_chat_turn
 from app.advisor_llm import summarize_build
 from app.advisor_tools import dispatch_tool
 from app.config import settings
+from app.free_chat_session import FREE_CHAT_SESSIONS, FreeChatSessionNotFoundError
 from app.pob.bridge import PobBridge, PobBridgeError
 from app.pob.decode import decode_pob_code
 from app.pob.session import SESSIONS, SessionNotFoundError
@@ -48,6 +49,10 @@ class SessionCreateRequest(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    message: str
+
+
+class FreeChatRequest(BaseModel):
     message: str
 
 
@@ -122,4 +127,34 @@ def export_session(session_id: str) -> dict:
 @router.delete("/session/{session_id}")
 def close_session(session_id: str) -> dict:
     SESSIONS.close(session_id)
+    return {"status": "closed"}
+
+
+@router.post("/freechat")
+def create_free_chat() -> dict:
+    """Brainstorm chat bez nahraného buildu -- viz app/free_chat_session.py.
+    Žádný bridge subprocess, takže na rozdíl od /session je tohle okamžité."""
+    session = FREE_CHAT_SESSIONS.create()
+    return {"session_id": session.id}
+
+
+@router.post("/freechat/{session_id}/chat")
+def free_chat(session_id: str, payload: FreeChatRequest) -> dict:
+    try:
+        session = FREE_CHAT_SESSIONS.get(session_id)
+    except FreeChatSessionNotFoundError:
+        raise HTTPException(status_code=404, detail="Chat session nenalezena nebo vypršela -- začni znovu.")
+
+    with session.lock:
+        try:
+            reply = run_free_chat_turn(session.chat_history, payload.message)
+        except AdvisorChatError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return {"reply": reply}
+
+
+@router.delete("/freechat/{session_id}")
+def close_free_chat(session_id: str) -> dict:
+    FREE_CHAT_SESSIONS.close(session_id)
     return {"status": "closed"}
