@@ -43,6 +43,19 @@ TOOLS: list[dict[str, Any]] = [
         "input_schema": {"type": "object", "properties": {}},
     },
     {
+        "name": "list_jewels",
+        "description": (
+            "Vrátí jewely nasazené v pasivním stromě (obyčejné, cluster, "
+            "abyss i Timeless Jewely jako Lethal Pride/Glorious Vanity) -- "
+            "list_equipped_items je neukazuje, jewel sockety mají vlastní "
+            "mapování. Nutné zavolat, než se ptáš/odpovídáš na cokoliv o "
+            "jewelech -- u Timeless Jewelů list_passive_tree už ukazuje "
+            "TRANSFORMOVANÉ uzly (jiná jména/staty než ve vanilla stromu), "
+            "ale bez tohohle nevíš, že důvodem je jewel, natož který."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "list_skills",
         "description": (
             "Vrátí nakonfigurované skill gemy po skupinách přesně tak, jak je "
@@ -246,6 +259,8 @@ def dispatch_tool(session: PobSession | None, name: str, tool_input: dict[str, A
         return bridge.call("get_breakdown", {"stat": tool_input["stat"]})
     if name == "list_equipped_items":
         return bridge.call("list_items")
+    if name == "list_jewels":
+        return bridge.call("list_jewels")
     if name == "list_skills":
         return bridge.call("list_skills")
     if name == "list_passive_tree":

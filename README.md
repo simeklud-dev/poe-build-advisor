@@ -86,21 +86,30 @@ spočtená, nikdy odhadnutá.
 - `get_build_summary` -- kurátorovaný výřez statů (viz "Náklady a
   spolehlivost" níže), `get_stat_breakdown` -- formulí-anotovaný rozklad
   konkrétního statu.
-- `list_equipped_items` -- nasazené itemy po slotech.
+- `list_equipped_items` -- nasazené itemy po slotech (NE jewely v
+  pasivním stromě -- ty mají vlastní socket mapování, na ně `list_jewels`).
+- `list_jewels` -- jewely v pasivním stromě (obyčejné, cluster, abyss i
+  Timeless Jewely jako Lethal Pride/Glorious Vanity) -- node ID + syrový
+  text itemu.
 - `list_skills` -- konfigurované skill gemy po skupinách (label/slot/
   enabled/isMainSkill + gemy: jméno/level/quality/enabled).
 - `list_passive_tree` -- třída/ascendancy/utracené body + keystones/
-  notables/masteries (jméno + staty).
+  notables/masteries (jméno + staty) -- u Timeless Jewelů už transformované
+  (jiná jména/staty než ve vanilla stromu).
 - `try_item_change` / `try_node_toggle` -- co-by-kdyby změna, vrací
   before/after deltu (`compute_delta`, jen skalární staty).
 - `export_build`, `list_trade_leagues`, `search_trade_stats`,
   `search_trade_items`.
 
-`list_skills` a `list_passive_tree` byly doplněny až po prvním
-end-to-end nasazení (viz "Náklady a spolehlivost") -- bez nich AI neměla
-žádný způsob, jak zjistit nakonfigurované gemy nebo alokované uzly stromu,
-takže na otázky o nich odpovídala "nevidím žádné skilly" -- ne halucinace,
-ale reálně chybějící nástroj.
+`list_skills`, `list_passive_tree` a `list_jewels` byly doplněny až po
+prvním end-to-end nasazení -- bez nich AI neměla žádný způsob, jak zjistit
+nakonfigurované gemy, alokované uzly stromu, nebo socketnuté jewely, takže
+na otázky o nich odpovídala "nevidím žádné skilly"/"nevidím žádný jewel"
+-- ne halucinace, ale reálně chybějící nástroj. `list_jewels` byl navíc
+potřeba k tomu, aby AI vůbec věděla, ŽE je socketnutý Timeless Jewel a
+proč se jména/staty uzlů ve stromu liší od vanilla verze -- `list_passive_tree`
+transformaci sice už správně počítá, ale bez `list_jewels` AI neměla jak
+zjistit příčinu.
 
 ## Náklady a spolehlivost tool-use smyčky
 

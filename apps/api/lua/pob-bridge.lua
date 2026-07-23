@@ -264,6 +264,31 @@ function handlers.list_items()
 	return sanitize(out)
 end
 
+--- Lists jewels socketed into passive tree nodes (regular, cluster, abyss,
+--- and Timeless Jewels alike) -- list_items deliberately skips these (jewel
+--- sockets are addressed by node id, not slot name), so without this the
+--- advisor has no way to know a jewel is socketed at all, let alone which
+--- one. This matters most for Timeless Jewels (Lethal Pride, Glorious
+--- Vanity, ...): they transform nearby passive nodes, and while
+--- list_passive_tree already reflects the *transformed* node names/mods
+--- correctly (build.spec.allocNodes carries the transformation once the
+--- jewel data loads -- see the GetScriptPath/decompress fix), nothing told
+--- the advisor a Timeless Jewel was the reason, or which one.
+--- Socketed via build.spec.jewels (nodeId -> itemId), NOT itemsTab.slots/
+--- activeItemSet like list_items -- jewel sockets use their own mapping.
+function handlers.list_jewels()
+	if not build or not build.spec then
+		error("no build loaded -- call import_xml first")
+	end
+	local out = {}
+	for nodeId, itemId in pairs(build.spec.jewels) do
+		if itemId and itemId ~= 0 and build.itemsTab.items[itemId] then
+			table.insert(out, { nodeId = nodeId, raw = build.itemsTab.items[itemId].raw })
+		end
+	end
+	return sanitize(out)
+end
+
 --- Lists configured skill gems, grouped exactly as PoB's Skills tab shows
 --- them (one entry per socket group/skill set slot). Mirrors list_items --
 --- was missing entirely before, so the advisor had no way to see equipped
