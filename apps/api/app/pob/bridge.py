@@ -17,6 +17,7 @@ procesem, ne jako "jedno volání = jeden proces" pomocník.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,17 @@ class PobBridge:
         self._process: subprocess.Popen[str] | None = None
 
     def start(self) -> "PobBridge":
+        # HeadlessWrapper.lua stubs GetScriptPath() to "" (there's no real
+        # install dir in headless mode) -- harmless for most of PoB, but
+        # Modules/DataLegionLookUpTableHelper.lua's Timeless Jewel loader
+        # concatenates it straight into a path (GetScriptPath() .. "/Data/
+        # TimelessJewelData/..."), so an empty scriptPath silently produces a
+        # filesystem-root path instead of one relative to PoB's actual src
+        # dir, and every file lookup there fails. pob-bridge.lua overrides
+        # GetScriptPath() to read this env var back -- set explicitly here
+        # (not just relying on it already being in os.environ) so this works
+        # the same regardless of how POB_SRC_DIR reached this process.
+        env = {**os.environ, "POB_SRC_DIR": str(self._pob_src_dir.resolve())}
         self._process = subprocess.Popen(
             [self._lua_executable, "pob-bridge.lua"],
             cwd=self._pob_src_dir,
@@ -42,6 +54,7 @@ class PobBridge:
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
+            env=env,
         )
         return self
 

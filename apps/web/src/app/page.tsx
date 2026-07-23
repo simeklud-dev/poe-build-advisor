@@ -142,13 +142,19 @@ export default function Home() {
             {chatLoading && <p style={{ opacity: 0.5 }}>AI premysli...</p>}
           </div>
 
-          <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
-            <input
+          <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "flex-end" }}>
+            <textarea
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSendChat()}
-              style={{ flex: 1 }}
-              placeholder="Napr. chci hrat skill Elemental Hit, navrhni mi build..."
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSendChat();
+                }
+              }}
+              rows={3}
+              style={{ flex: 1, boxSizing: "border-box", fontSize: 16, padding: 8, resize: "vertical" }}
+              placeholder="Napr. chci hrat skill Elemental Hit, navrhni mi build... (Enter odešle, Shift+Enter nový řádek)"
               disabled={chatLoading}
             />
             <button onClick={handleSendChat} disabled={chatLoading || !chatInput.trim()}>

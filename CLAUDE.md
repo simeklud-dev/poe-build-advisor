@@ -79,6 +79,31 @@ end-to-end (Docker + reálný PoB engine + skutečné trade API) -- viz
 `AI_BUILD_ADVISOR_PLAN.md` (projekt "POE Build helper") pro plný plán a
 ověřené API tvary.
 
+**2026-07-22: Timeless Jewel (Lethal Pride, Glorious Vanity, ...) rozbíjel
+celý import buildu** -- uživatel nahlásil, že AI hlásí naprosto smyšlené
+staty (Life 1620 místo 4065, špatná třída/ascendancy). Nebyl to bug v Gemini
+ani v naší Python vrstvě -- nezávisle dekódovaný export přes `decode_pob_code`
+ukazoval správně `Templar`/`Hierophant`, ale identický XML poslaný přes celý
+pipeline (i syrový Lua bridge, obejito přes Python) vracel `Scion`/`None`.
+Kořenová příčina: `GetScriptPath()` je v headless módu (`HeadlessWrapper.lua`)
+natvrdo `""`, což je neškodné skoro všude, ale
+`Modules/DataLegionLookUpTableHelper.lua`'s Timeless Jewel loader z toho
+skládá cestu (`GetScriptPath() .. "/Data/TimelessJewelData/..."`) -- s
+prázdným `scriptPath` z toho vznikne cesta od kořene souborového systému
+místo od PoB `src/` adresáře, `io.open` nikdy nenajde soubor, a PoB tiše
+spadne na výchozí/prázdný build MÍSTO chyby. Oprava má dvě části: (1)
+`app/pob/bridge.py` teď explicitně nastavuje `POB_SRC_DIR` do prostředí
+subprocessu a `pob-bridge.lua` tím přepisuje `GetScriptPath()` na reálnou
+absolutní cestu; (2) i se správnou cestou by `.zip` dekomprese stejně
+spadla na stejnou zeď jako sdílené kódy (`Inflate()` je taky jen prázdný
+stub), takže `scripts/decompress_timeless_jewel_data.py` teď při Docker
+buildu předpřipraví `.bin` verze (PoB engine sám preferuje `.bin` před
+`.zip`, když existuje a je aktuální -- stačilo mu ho dát). Živě ověřeno na
+uživatelově reálném buildu (Templar/Hierophant se socketed Lethal Pride) --
+po opravě rezisty/ES/spell suppression sedí do puntíku s desktop PoB, drobné
+zbytkové rozdíly v Life/Armour/Block jsou normální odchylka z Configuration
+tabu (předpoklady o aktivních buffech), ne bug.
+
 **Známý drobný nedostatek (TODO, uživatel vědomě odložil na později):**
 `search_trade_items` nevrací hotový klikatelný `trade_url`, jen `query_id`
 -- AI proto trade linky občas nepřesně domýšlí. Viz README "Trade
@@ -95,6 +120,18 @@ integrace".
   (`HeadlessWrapper.lua`) jen prázdné TODO stuby, skutečná komprese je v
   kompilované runtime knihovně, kterou headless prostředí nemá.
   Do/z `pob-bridge.lua` chodí vždy jen čisté XML.
+- **`HeadlessWrapper.lua` stubuje víc věcí naprázdno, než jen kompresi** --
+  `GetScriptPath()` vrací natvrdo `""`. Neškodné skoro všude, ale Timeless
+  Jewel loader (`DataLegionLookUpTableHelper.lua`) z toho skládá cestu k
+  `Data/TimelessJewelData/*.zip|.bin` a s prázdným `scriptPath` nikdy nenajde
+  soubor -- PoB pak TICHE naimportuje prázdný/výchozí build místo chyby (viz
+  "Stav" výše). `pob-bridge.lua` teď `GetScriptPath()` přepisuje na reálnou
+  cestu (`POB_SRC_DIR` z prostředí, nastaveno v `app/pob/bridge.py`) a
+  `scripts/decompress_timeless_jewel_data.py` při Docker buildu předpřipraví
+  `.bin` verze jewel dat (obchází stejně prázdný `Inflate()` stub). Obecná
+  lekce: když PoB engine vrátí nesmyslné/výchozí staty místo chyby, podezřívej
+  nejdřív tichý fallback z nějakého dalšího stubovaného headless API, ne
+  parsing bug v `decode.py` nebo Gemini.
 - **Bridge dumpuje celé PoB output tabulky** (`sanitize()` v
   `pob-bridge.lua`), nehardkóduje konkrétní jména statů -- necitlivé na
   přejmenování polí mezi ligami.

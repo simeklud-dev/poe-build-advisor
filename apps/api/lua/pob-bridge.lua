@@ -34,6 +34,22 @@ end
 
 dofile("HeadlessWrapper.lua")
 
+-- HeadlessWrapper.lua stubs GetScriptPath() to always return "" -- fine for
+-- most of PoB, but Modules/DataLegionLookUpTableHelper.lua's Timeless Jewel
+-- loader (loadJewelFile) builds paths as GetScriptPath() .. "/Data/
+-- TimelessJewelData/<Name>.bin|.zip". With scriptPath == "", that's a
+-- filesystem-ROOT path ("/Data/TimelessJewelData/...") instead of one
+-- relative to PoB's actual src dir, so io.open always fails to find the real
+-- file -- any build socketing a Timeless Jewel (Lethal Pride, Glorious
+-- Vanity, ...) then silently loads with wrong/default class, ascendancy and
+-- stats instead of erroring loudly. app/pob/bridge.py always launches this
+-- script with cwd == the real PoB src dir AND sets POB_SRC_DIR to that same
+-- absolute path, so read it back here.
+local pobSrcDir = os.getenv("POB_SRC_DIR")
+if pobSrcDir and pobSrcDir ~= "" then
+	GetScriptPath = function() return pobSrcDir end
+end
+
 local dkjson = require("dkjson")
 
 -- Recursively converts a Lua value into something dkjson can encode safely:

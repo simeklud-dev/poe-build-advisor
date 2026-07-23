@@ -72,6 +72,11 @@ COPY --from=pobsrc /opt/pob/spec/TestBuilds ./vendor/PathOfBuilding/spec/TestBui
 COPY apps/api/app ./apps/api/app
 COPY scripts ./scripts
 
+# Pre-decompress Timeless Jewel data (needed for any build socketing e.g.
+# Lethal Pride/Glorious Vanity) -- see scripts/decompress_timeless_jewel_data.py
+# for why headless PoB can't do this itself at runtime.
+RUN python scripts/decompress_timeless_jewel_data.py
+
 ENV PYTHONPATH=/app/apps/api
 ENV LUA_EXECUTABLE=luajit
 ENV POB_SRC_DIR=/app/vendor/PathOfBuilding/src
